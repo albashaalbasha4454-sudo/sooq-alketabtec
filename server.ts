@@ -16,11 +16,18 @@ async function startServer() {
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
-    }
+    },
+    transports: ['polling', 'websocket'],
+    allowEIO3: true
   });
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
 
   // Helper to notify all clients
   const notifyClients = (type: string, data?: any) => {
@@ -35,6 +42,7 @@ async function startServer() {
 
   // Auth
   app.post('/api/auth/login', (req, res) => {
+    console.log('Login attempt for:', req.body.username);
     try {
       const { username, password } = req.body;
       if (!username || !password) {
@@ -42,8 +50,10 @@ async function startServer() {
       }
       const user = db.prepare('SELECT id, username, role FROM users WHERE username = ? AND password = ?').get(username, password) as any;
       if (user) {
+        console.log('Login successful for:', username);
         res.json({ success: true, user });
       } else {
+        console.log('Login failed for:', username);
         res.status(401).json({ success: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
       }
     } catch (error) {

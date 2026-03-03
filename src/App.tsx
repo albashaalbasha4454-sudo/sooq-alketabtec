@@ -351,6 +351,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [showPassword, setShowPassword] = useState(false);
+  const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
 
@@ -435,10 +436,58 @@ export default function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
+    // Global unhandled rejection handler
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('WebSocket') || event.reason?.message?.includes('websocket')) {
+        event.preventDefault(); // Suppress noisy WebSocket errors
+        return;
+      }
+      console.error('Unhandled Rejection:', event.reason);
+    };
+
+    window.addEventListener('unhandledrejection', handleRejection);
+    
+    // Check server health
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          setServerStatus('online');
+        } else {
+          setServerStatus('offline');
+        }
+      } catch (err) {
+        setServerStatus('offline');
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', handleRejection);
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
     if (user) {
       fetchData();
       
-      const socket = io();
+      const socket = io({
+        transports: ['polling', 'websocket'],
+        reconnectionAttempts: 5,
+        timeout: 10000
+      });
+
+      socket.on('connect', () => {
+        console.log('Socket connected');
+      });
+
+      socket.on('connect_error', (err) => {
+        console.error('Socket connection error:', err);
+      });
+
       socket.on('data_update', (msg) => {
         console.log('Real-time update:', msg.type);
         fetchData();
@@ -620,11 +669,18 @@ export default function App() {
     setError('');
     setIsLoading(true);
     try {
+      // Use a timeout for the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify(loginForm),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (!res.ok) {
         if (res.status === 401) {
@@ -767,7 +823,14 @@ export default function App() {
             <p className="text-slate-400 font-medium mt-2">نظام إدارة المكتبات المتكامل</p>
           </div>
           
-          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <div className={`w-2 h-2 rounded-full ${serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : serverStatus === 'offline' ? 'bg-rose-500' : 'bg-slate-300'}`}></div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                {serverStatus === 'online' ? 'الخادم متصل' : serverStatus === 'offline' ? 'الخادم غير متصل' : 'جاري التحقق من الخادم...'}
+              </span>
+            </div>
+            
+            <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2 mr-1">اسم المستخدم</label>
               <input 
