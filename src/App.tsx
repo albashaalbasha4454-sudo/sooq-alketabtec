@@ -30,7 +30,11 @@ import {
   Sun,
   Bell,
   Truck,
-  ListTodo
+  ListTodo,
+  Smartphone,
+  Eye,
+  EyeOff,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { io } from 'socket.io-client';
@@ -220,20 +224,20 @@ const SidebarItem = ({ icon: Icon, label, active, onClick }: { icon: any, label:
 const StatCard = ({ title, value, icon: Icon, color, trend }: { title: string, value: string | number, icon: any, color: string, trend?: string }) => (
   <motion.div 
     whileHover={{ y: -4 }}
-    className="bg-white p-6 rounded-2xl border border-slate-100 card-shadow"
+    className="bg-white p-6 rounded-2xl border border-slate-100 card-shadow transition-colors"
   >
     <div className="flex justify-between items-start mb-4">
       <div className={`p-3 rounded-xl ${color}`}>
         <Icon size={24} className="text-white" />
       </div>
       {trend && (
-        <span className={`text-xs font-bold px-2 py-1 rounded-full ${trend.startsWith('+') ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+        <span className={`text-xs font-bold px-2 py-1 rounded-full ${trend.startsWith('+') ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'}`}>
           {trend}
         </span>
       )}
     </div>
-    <h3 className="text-slate-500 text-sm font-medium mb-1">{title}</h3>
-    <p className="text-2xl font-bold text-slate-900">{value}</p>
+    <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">{title}</h3>
+    <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
   </motion.div>
 );
 
@@ -339,11 +343,30 @@ const FinancialReportPrint = React.forwardRef(({ data, dateRange }: { data: any,
 // --- Main App ---
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('sooq_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('sooq_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('sooq_user');
+    }
+  }, [user]);
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('sooq_user');
+    toast.success('تم تسجيل الخروج بنجاح');
+  };
   
   // Data State
   const [stats, setStats] = useState<Stats | null>(null);
@@ -374,6 +397,7 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<number | null>(null);
   const [orderType, setOrderType] = useState<'direct' | 'shipment' | 'booking'>('direct');
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'unpaid' | 'partial'>('paid');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'alharam' | 'sham_cash' | 'syriatel_cash' | 'debt'>('cash');
   const [showFinancialModal, setShowFinancialModal] = useState<{ show: boolean, type: 'expense' | 'deposit' | 'withdrawal' | 'transfer' }>({ show: false, type: 'expense' });
   const [financialForm, setFinancialForm] = useState({
     amount: 0,
@@ -538,6 +562,12 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, []);
+
   const fetchData = async () => {
     try {
       const [statsRes, booksRes, customersRes, ordersRes, expensesRes, suppliersRes, purchasesRes, categoriesRes, accountsRes, transactionsRes] = await Promise.all([
@@ -588,21 +618,38 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
       });
+      
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError('اسم المستخدم أو كلمة المرور غير صحيحة');
+        } else {
+          setError('حدث خطأ في الخادم، يرجى المحاولة لاحقاً');
+        }
+        setIsLoading(false);
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         setUser(data.user);
+        fetchData();
+        toast.success(`أهلاً بك ${data.user.username}`);
         if (data.user.role === 'cashier') setActiveTab('pos');
       } else {
-        setError('بيانات الدخول غير صحيحة');
+        setError(data.message || 'بيانات الدخول غير صحيحة');
       }
     } catch (err) {
-      setError('حدث خطأ أثناء الاتصال بالخادم');
+      console.error('Login error:', err);
+      setError('تعذر الاتصال بالخادم، تأكد من اتصالك بالإنترنت');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -639,7 +686,7 @@ export default function App() {
           total_amount: total,
           tax_amount: tax,
           discount_amount: 0,
-          payment_method: orderType === 'direct' ? 'cash' : 'debt',
+          payment_method: paymentMethod,
           order_type: orderType,
           payment_status: paymentStatus,
           shipping_address: (orderType === 'shipment' || orderType === 'booking') ? shipmentDetails.address : null,
@@ -656,6 +703,7 @@ export default function App() {
         setSelectedCustomer(null);
         setOrderType('direct');
         setPaymentStatus('paid');
+        setPaymentMethod('cash');
         setShipmentDetails({
           address: '',
           cost: 0,
@@ -731,16 +779,23 @@ export default function App() {
                 onChange={e => setLoginForm({ ...loginForm, username: e.target.value })}
               />
             </div>
-            <div>
+            <div className="relative">
               <label className="block text-sm font-bold text-slate-700 mb-2 mr-1">كلمة المرور</label>
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 required
-                className="w-full px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-gold/50 focus:border-brand-gold transition-all bg-slate-50 touch-manipulation"
+                className="w-full px-5 py-4 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-gold/50 focus:border-brand-gold transition-all bg-slate-50 touch-manipulation pr-5 pl-12"
                 placeholder="••••••••"
                 value={loginForm.password}
                 onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
               />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute left-4 bottom-4 text-slate-400 hover:text-brand-gold transition-colors"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
             </div>
             {error && (
               <div className="p-4 bg-rose-50 text-rose-600 rounded-xl text-sm font-bold flex items-center gap-2">
@@ -751,9 +806,15 @@ export default function App() {
             <motion.button 
               whileTap={{ scale: 0.98 }}
               type="submit"
-              className="w-full bg-brand-navy text-white py-5 rounded-2xl font-black text-lg hover:bg-slate-800 transition-all shadow-xl shadow-brand-navy/20 select-none touch-manipulation"
+              disabled={isLoading}
+              className="w-full bg-brand-navy text-white py-5 rounded-2xl font-black text-lg hover:bg-slate-800 transition-all shadow-xl shadow-brand-navy/20 select-none touch-manipulation disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
             >
-              تسجيل الدخول
+              {isLoading ? (
+                <>
+                  <RefreshCw className="animate-spin" size={20} />
+                  جاري التحقق...
+                </>
+              ) : 'تسجيل الدخول'}
             </motion.button>
           </form>
           
@@ -826,7 +887,7 @@ export default function App() {
           </div>
           <motion.button 
             whileTap={{ scale: 0.95 }}
-            onClick={() => setUser(null)}
+            onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-rose-600 hover:bg-rose-50 active:bg-rose-100 transition-all font-bold text-sm select-none touch-manipulation"
           >
             <LogOut size={18} />
@@ -1008,11 +1069,11 @@ export default function App() {
                               <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
                             </linearGradient>
                           </defs>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }} />
-                          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }} />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-200 dark:text-zinc-800" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'currentColor', fontSize: 11, fontWeight: 700 }} className="text-slate-400 dark:text-slate-500" />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fill: 'currentColor', fontSize: 11, fontWeight: 700 }} className="text-slate-400 dark:text-slate-500" />
                           <Tooltip 
-                            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', direction: 'rtl' }}
+                            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', direction: 'rtl', backgroundColor: 'var(--tw-bg-opacity, #fff)' }}
                           />
                           <Area type="monotone" dataKey="sales" stroke="#d97706" strokeWidth={4} fillOpacity={1} fill="url(#colorSales)" />
                         </AreaChart>
@@ -1341,22 +1402,22 @@ export default function App() {
                 <div className="p-6 border-b border-slate-100 space-y-4">
                   <h3 className="text-xl font-bold text-slate-900">سلة المشتريات</h3>
                   
-                  <div className="flex gap-2 p-1.5 bg-slate-100 rounded-2xl">
+                  <div className="flex gap-2 p-1.5 bg-slate-100 dark:bg-zinc-800/50 rounded-2xl">
                     <button 
                       onClick={() => setOrderType('direct')}
-                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'direct' ? 'bg-white text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'direct' ? 'bg-white dark:bg-zinc-700 text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
                     >
                       بيع مباشر
                     </button>
                     <button 
                       onClick={() => setOrderType('shipment')}
-                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'shipment' ? 'bg-white text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'shipment' ? 'bg-white dark:bg-zinc-700 text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
                     >
                       شحن
                     </button>
                     <button 
                       onClick={() => setOrderType('booking')}
-                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'booking' ? 'bg-white text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all ${orderType === 'booking' ? 'bg-white dark:bg-zinc-700 text-brand-navy shadow-md' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
                     >
                       حجز
                     </button>
@@ -1505,20 +1566,48 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <motion.button 
-                      whileTap={{ scale: 0.95 }}
-                      className="flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors select-none touch-manipulation"
-                    >
-                      <CreditCard size={18} />
-                      بطاقة
-                    </motion.button>
-                    <motion.button 
-                      whileTap={{ scale: 0.95 }}
-                      className="flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 active:bg-emerald-800 transition-colors shadow-lg shadow-emerald-600/20 select-none touch-manipulation"
-                    >
-                      <DollarSign size={18} />
-                      نقداً
-                    </motion.button>
+                    <div className="col-span-2 grid grid-cols-2 gap-3">
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setPaymentMethod('cash')}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-bold transition-colors select-none touch-manipulation ${
+                          paymentMethod === 'cash' ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/20' : 'bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <DollarSign size={18} />
+                        نقداً
+                      </motion.button>
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setPaymentMethod('alharam')}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-bold transition-colors select-none touch-manipulation ${
+                          paymentMethod === 'alharam' ? 'bg-brand-gold text-white border-brand-gold shadow-lg shadow-brand-gold/20' : 'bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <ArrowRightLeft size={18} />
+                        حوالة الهرم
+                      </motion.button>
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setPaymentMethod('sham_cash')}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-bold transition-colors select-none touch-manipulation ${
+                          paymentMethod === 'sham_cash' ? 'bg-brand-blue text-white border-brand-blue shadow-lg shadow-brand-blue/20' : 'bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <Wallet size={18} />
+                        شام كاش
+                      </motion.button>
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setPaymentMethod('syriatel_cash')}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-bold transition-colors select-none touch-manipulation ${
+                          paymentMethod === 'syriatel_cash' ? 'bg-rose-600 text-white border-rose-600 shadow-lg shadow-rose-600/20' : 'bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <Smartphone size={18} />
+                        سيرياتيل كاش
+                      </motion.button>
+                    </div>
                   </div>
 
                   <motion.button 

@@ -35,12 +35,20 @@ async function startServer() {
 
   // Auth
   app.post('/api/auth/login', (req, res) => {
-    const { username, password } = req.body;
-    const user = db.prepare('SELECT id, username, role FROM users WHERE username = ? AND password = ?').get(username, password) as any;
-    if (user) {
-      res.json({ success: true, user });
-    } else {
-      res.status(401).json({ success: false, message: 'Invalid credentials' });
+    try {
+      const { username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Username and password are required' });
+      }
+      const user = db.prepare('SELECT id, username, role FROM users WHERE username = ? AND password = ?').get(username, password) as any;
+      if (user) {
+        res.json({ success: true, user });
+      } else {
+        res.status(401).json({ success: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ success: false, message: 'حدث خطأ في النظام' });
     }
   });
 
@@ -196,9 +204,9 @@ async function startServer() {
       
       // Record transaction in treasury (Main Treasury by default for now)
       const mainAccount = db.prepare('SELECT id FROM accounts WHERE name = ?').get('الخزينة الرئيسية') as any;
-      if (mainAccount && payment_method === 'cash') {
+      if (mainAccount && ['cash', 'alharam', 'sham_cash', 'syriatel_cash'].includes(payment_method)) {
         db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
-          .run(mainAccount.id, 'sale', total_amount, `بيع فاتورة #${orderId}`, orderId);
+          .run(mainAccount.id, 'sale', total_amount, `بيع فاتورة #${orderId} (${payment_method})`, orderId);
         db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(total_amount, mainAccount.id);
       }
       
