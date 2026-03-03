@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-navy: #0f172a;
+  --color-brand-gold: #d97706;
+  --color-brand-gold-light: #f59e0b;
+  --color-brand-blue: #3b82f6;
+  --color-brand-bg: #f1f5f9;
+  --shadow-premium: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+}
+
+@layer base {
+  body {
+    @apply bg-brand-bg text-slate-900 antialiased transition-colors duration-300;
+    direction: rtl;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body.dark {
+    @apply bg-[#0a0a0a] text-slate-100;
+    --color-brand-bg: #0a0a0a;
+    --color-brand-navy: #f8fafc;
+  }
+}
+
+.card-shadow {
+  box-shadow: var(--shadow-premium);
+}
+
+.dark .card-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+}
+
+.glass-card {
+  @apply bg-white/90 backdrop-blur-lg border border-white/20 shadow-2xl;
+}
+
+.dark .glass-card {
+  @apply bg-zinc-900/80 backdrop-blur-lg border border-zinc-800/50 shadow-2xl;
+}
+
+.dark .bg-white {
+  @apply bg-[#141414] border-zinc-800;
+}
+
+.dark .bg-slate-50 {
+  @apply bg-[#1a1a1a];
+}
+
+.dark .bg-slate-100 {
+  @apply bg-[#222222];
+}
+
+.dark .text-slate-900 {
+  @apply text-slate-100;
+}
+
+.dark .text-brand-navy {
+  @apply text-slate-100;
+}
+
+.dark .text-slate-600 {
+  @apply text-slate-400;
+}
+
+.dark .text-slate-500 {
+  @apply text-slate-500;
+}
+
+.dark .border-slate-100, .dark .border-slate-200, .dark .border-slate-50 {
+  @apply border-zinc-800;
+}
+
+.dark aside {
+  @apply bg-[#111111] border-zinc-800;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]) {
+  @apply border-zinc-800;
+}
+
+.dark input, .dark select, .dark textarea {
+  @apply bg-[#1a1a1a] border-zinc-800 text-slate-100;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  @apply bg-zinc-800/50;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  @apply bg-zinc-800;
+}
+
+.dark .bg-brand-bg {
+  @apply bg-[#0a0a0a];
+}
+
+.sidebar-item-active {
+  @apply bg-brand-gold text-white shadow-lg shadow-brand-gold/20;
+}
+
+.sidebar-item {
+  @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-white/10;
+}
+
+/* RTL Support */
+[dir="rtl"] .sidebar-item {
+  @apply flex-row-reverse;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400;
+}
