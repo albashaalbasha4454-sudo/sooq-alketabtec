@@ -613,6 +613,7 @@ export default function App() {
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_person: '', phone: '' });
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
   const [customerPaymentForm, setCustomerPaymentForm] = useState({ amount: 0, account_id: 0, description: '' });
+  const [supplierPaymentForm, setSupplierPaymentForm] = useState({ amount: 0, account_id: 0, description: '' });
   const [purchaseForm, setPurchaseForm] = useState({ supplier_id: 0, items: [] as { book_id: number, quantity: number, unit_price: number }[] });
   const [financialForm, setFinancialForm] = useState({
     amount: 0,
@@ -881,6 +882,26 @@ export default function App() {
       }
     } catch (err) {
       toast.error('حدث خطأ أثناء تسجيل الدفعة');
+    }
+  };
+
+  const handleSupplierPaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showSupplierPaymentModal.supplierId) return;
+    try {
+      const res = await fetch(`/api/suppliers/${showSupplierPaymentModal.supplierId}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(supplierPaymentForm)
+      });
+      if (res.ok) {
+        setShowSupplierPaymentModal({ show: false });
+        setSupplierPaymentForm({ amount: 0, account_id: 0, description: '' });
+        fetchData();
+        toast.success('تم تسجيل الدفعة للمورد بنجاح');
+      }
+    } catch (err) {
+      toast.error('حدث خطأ أثناء تسجيل الدفعة للمورد');
     }
   };
 
@@ -3027,6 +3048,17 @@ export default function App() {
                           >
                             تعديل
                           </button>
+                          {supplier.balance > 0 && (
+                            <button 
+                              onClick={() => {
+                                setSupplierPaymentForm({ amount: 0, account_id: 0, description: '' });
+                                setShowSupplierPaymentModal({ show: true, supplierId: supplier.id, supplierName: supplier.name });
+                              }}
+                              className="mr-3 text-emerald-600 hover:underline font-bold text-sm"
+                            >
+                              تسديد
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -3711,6 +3743,65 @@ export default function App() {
                   <div className="flex gap-3 pt-4">
                     <button type="submit" className="flex-1 bg-brand-navy text-white py-4 rounded-2xl font-black">حفظ</button>
                     <button type="button" onClick={() => setShowSupplierModal({ ...showSupplierModal, show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Supplier Payment Modal */}
+        <AnimatePresence>
+          {showSupplierPaymentModal.show && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-navy/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl"
+              >
+                <h2 className="text-2xl font-black text-brand-navy mb-2">تسديد دفعة لمورد</h2>
+                <p className="text-slate-500 mb-8 font-bold">المورد: {showSupplierPaymentModal.supplierName}</p>
+                
+                <form onSubmit={handleSupplierPaymentSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">المبلغ المسدد</label>
+                    <input 
+                      type="number" required
+                      className="w-full p-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500/50 outline-none font-black text-xl"
+                      value={supplierPaymentForm.amount || ''}
+                      onChange={e => setSupplierPaymentForm({ ...supplierPaymentForm, amount: Number(e.target.value) })}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">الحساب المدفوع منه</label>
+                    <select 
+                      required
+                      className="w-full p-4 rounded-2xl border border-slate-200 outline-none font-bold"
+                      value={supplierPaymentForm.account_id || ''}
+                      onChange={e => setSupplierPaymentForm({ ...supplierPaymentForm, account_id: Number(e.target.value) })}
+                    >
+                      <option value="">اختر الحساب...</option>
+                      {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ملاحظات</label>
+                    <textarea 
+                      className="w-full p-4 rounded-2xl border border-slate-200 outline-none font-bold min-h-[80px]"
+                      placeholder="ملاحظات إضافية..."
+                      value={supplierPaymentForm.description}
+                      onChange={e => setSupplierPaymentForm({ ...supplierPaymentForm, description: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-600/20">تأكيد التسديد</button>
+                    <button type="button" onClick={() => setShowSupplierPaymentModal({ show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
                   </div>
                 </form>
               </motion.div>
