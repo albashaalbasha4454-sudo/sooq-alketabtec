@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -22,7 +23,7 @@ async function startServer() {
     pingTimeout: 60000,
     pingInterval: 25000
   });
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -227,6 +228,12 @@ async function startServer() {
       
       const orderId = orderInfo.lastInsertRowid;
       
+      // Update customer balance if debt exists
+      if (customer_id && (payment_status === 'unpaid' || payment_status === 'partial')) {
+        const debtAmount = total_amount - (paid_amount || 0);
+        db.prepare('UPDATE customers SET balance = balance - ? WHERE id = ?').run(debtAmount, customer_id);
+      }
+      
       // Record transaction in treasury (Main Treasury by default for now)
       const mainAccount = db.prepare('SELECT id FROM accounts WHERE name = ?').get('الخزينة الرئيسية') as any;
       if (mainAccount && ['cash', 'alharam', 'sham_cash', 'syriatel_cash'].includes(payment_method) && payment_status !== 'unpaid') {
@@ -346,6 +353,32 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post('/api/suppliers/:id/pay', (req, res) => {
+    const { id } = req.params;
+    const { amount, account_id, description } = req.body;
+    
+    const transaction = db.transaction(() => {
+      // Update supplier balance
+      db.prepare('UPDATE suppliers SET balance = balance - ? WHERE id = ?').run(amount, id);
+      
+      // Record in treasury
+      if (account_id) {
+        db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
+          .run(account_id, 'expense', amount, `تسديد مورد #${id}: ${description || ''}`, id);
+        db.prepare('UPDATE accounts SET balance = balance - ? WHERE id = ?').run(amount, account_id);
+      }
+    });
+
+    try {
+      transaction();
+      notifyClients('suppliers');
+      notifyClients('accounts');
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  });
+
   // Purchases
   app.get('/api/purchases', (req, res) => {
     const purchases = db.prepare(`
@@ -370,8 +403,8 @@ async function startServer() {
         db.prepare('UPDATE books SET stock_quantity = stock_quantity + ?, purchase_price = ? WHERE id = ?').run(item.quantity, item.unit_price, item.book_id);
       }
       
-      // Update supplier balance if needed (assuming debt for now if not paid, but let's keep it simple)
-      // db.prepare('UPDATE suppliers SET balance = balance + ? WHERE id = ?').run(total_amount, supplier_id);
+      // Update supplier balance (debt)
+      db.prepare('UPDATE suppliers SET balance = balance + ? WHERE id = ?').run(total_amount, supplier_id);
 
       return purchaseId;
     });
@@ -408,6 +441,51 @@ async function startServer() {
     const { name, phone, email } = req.body;
     const info = db.prepare('INSERT INTO customers (name, phone, email) VALUES (?, ?, ?)').run(name, phone, email);
     res.json({ id: info.lastInsertRowid });
+  });
+
+  app.put('/api/customers/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, phone, email } = req.body;
+    db.prepare('UPDATE customers SET name = ?, phone = ?, email = ? WHERE id = ?').run(name, phone, email, id);
+    notifyClients('customers');
+    res.json({ success: true });
+  });
+
+  app.post('/api/customers/:id/pay', (req, res) => {
+    const { id } = req.params;
+    const { amount, account_id, description } = req.body;
+    
+    const transaction = db.transaction(() => {
+      // Update customer balance
+      db.prepare('UPDATE customers SET balance = balance + ? WHERE id = ?').run(amount, id);
+      
+      // Record in treasury
+      if (account_id) {
+        db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
+          .run(account_id, 'sale', amount, `تسديد دين عميل #${id}: ${description || ''}`, id);
+        db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(amount, account_id);
+      }
+    });
+
+    try {
+      transaction();
+      notifyClients('customers');
+      notifyClients('accounts');
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  });
+
+  // Users / Password
+  app.patch('/api/users/password', (req, res) => {
+    const { username, newPassword } = req.body;
+    try {
+      db.prepare('UPDATE users SET password = ? WHERE username = ?').run(newPassword, username);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to update password' });
+    }
   });
 
   // Expenses

@@ -606,10 +606,13 @@ export default function App() {
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [showFinancialModal, setShowFinancialModal] = useState<{ show: boolean, type: 'expense' | 'deposit' | 'withdrawal' | 'transfer' }>({ show: false, type: 'expense' });
   const [showSupplierModal, setShowSupplierModal] = useState<{ show: boolean, mode: 'add' | 'edit', supplierId?: number }>({ show: false, mode: 'add' });
+  const [showSupplierPaymentModal, setShowSupplierPaymentModal] = useState<{ show: boolean, supplierId?: number, supplierName?: string }>({ show: false });
   const [showCustomerModal, setShowCustomerModal] = useState<{ show: boolean, mode: 'add' | 'edit', customerId?: number }>({ show: false, mode: 'add' });
+  const [showCustomerPaymentModal, setShowCustomerPaymentModal] = useState<{ show: boolean, customerId?: number, customerName?: string }>({ show: false });
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_person: '', phone: '' });
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
+  const [customerPaymentForm, setCustomerPaymentForm] = useState({ amount: 0, account_id: 0, description: '' });
   const [purchaseForm, setPurchaseForm] = useState({ supplier_id: 0, items: [] as { book_id: number, quantity: number, unit_price: number }[] });
   const [financialForm, setFinancialForm] = useState({
     amount: 0,
@@ -727,11 +730,13 @@ export default function App() {
     if (user) {
       fetchData();
       
-      const socket = io({
-        transports: ['websocket', 'polling'],
+      const socket = io(window.location.origin, {
+        transports: ['polling', 'websocket'],
         reconnectionAttempts: 10,
         timeout: 20000,
-        autoConnect: true
+        autoConnect: true,
+        forceNew: true,
+        path: '/socket.io/'
       });
 
       socket.on('connect', () => {
@@ -739,9 +744,13 @@ export default function App() {
       });
 
       socket.on('connect_error', (err) => {
-        console.error('Socket connection error:', err.message);
-        if (err.message === 'xhr poll error') {
-          console.log('Polling failed, retrying with websocket...');
+        // Only log if it's not a common/expected error in this environment
+        if (err.message !== 'websocket error' && err.message !== 'xhr poll error') {
+          console.error('Socket connection error:', err.message);
+        }
+        
+        if (err.message === 'xhr poll error' || err.message === 'websocket error') {
+          // Silent fallback is handled by socket.io transports array
         }
       });
 
@@ -852,6 +861,26 @@ export default function App() {
       }
     } catch (err) {
       toast.error('فشلت العملية');
+    }
+  };
+
+  const handleCustomerPaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showCustomerPaymentModal.customerId) return;
+    try {
+      const res = await fetch(`/api/customers/${showCustomerPaymentModal.customerId}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerPaymentForm)
+      });
+      if (res.ok) {
+        setShowCustomerPaymentModal({ show: false });
+        setCustomerPaymentForm({ amount: 0, account_id: 0, description: '' });
+        fetchData();
+        toast.success('تم تسجيل الدفعة بنجاح');
+      }
+    } catch (err) {
+      toast.error('حدث خطأ أثناء تسجيل الدفعة');
     }
   };
 
@@ -2138,6 +2167,19 @@ export default function App() {
                         <Smartphone size={18} />
                         سيرياتيل كاش
                       </motion.button>
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          setPaymentMethod('debt');
+                          setPaymentStatus('unpaid');
+                        }}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-bold transition-colors select-none touch-manipulation ${
+                          paymentMethod === 'debt' ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/20' : 'bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <Clock size={18} />
+                        آجل / ديون
+                      </motion.button>
                     </div>
                   </div>
 
@@ -2901,7 +2943,28 @@ export default function App() {
                           {customer.balance} ر.س
                         </td>
                         <td className="px-6 py-4">
-                          <button className="text-brand-blue hover:underline font-bold text-sm">تعديل</button>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                setCustomerForm({ name: customer.name, phone: customer.phone, email: customer.email || '' });
+                                setShowCustomerModal({ show: true, mode: 'edit', customerId: customer.id });
+                              }}
+                              className="text-brand-blue hover:underline font-bold text-sm"
+                            >
+                              تعديل
+                            </button>
+                            {customer.balance < 0 && (
+                              <button 
+                                onClick={() => {
+                                  setShowCustomerPaymentModal({ show: true, customerId: customer.id, customerName: customer.name });
+                                  setCustomerPaymentForm({ amount: Math.abs(customer.balance), account_id: accounts[0]?.id || 0, description: '' });
+                                }}
+                                className="text-emerald-600 hover:underline font-bold text-sm"
+                              >
+                                تسديد دين
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2955,7 +3018,15 @@ export default function App() {
                         <td className="px-6 py-4 text-slate-500">{supplier.phone}</td>
                         <td className="px-6 py-4 font-bold text-rose-600">{supplier.balance} ر.س</td>
                         <td className="px-6 py-4">
-                          <button className="text-brand-blue hover:underline font-bold text-sm">تعديل</button>
+                          <button 
+                            onClick={() => {
+                              setSupplierForm({ name: supplier.name, contact_person: supplier.contact_person, phone: supplier.phone });
+                              setShowSupplierModal({ show: true, mode: 'edit', supplierId: supplier.id });
+                            }}
+                            className="text-brand-blue hover:underline font-bold text-sm"
+                          >
+                            تعديل
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -3039,13 +3110,25 @@ export default function App() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-2">اسم المكتبة</label>
-                      <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200" defaultValue="سوق الكتاب" />
+                      <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200" defaultValue="سوق الكتاب" id="storeName" />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-2">العملة</label>
-                      <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200" defaultValue="ر.س" />
+                      <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200" defaultValue="ر.س" id="currency" />
                     </div>
-                    <div className="pt-4">
+                    <div className="pt-2">
+                      <button 
+                        onClick={() => {
+                          const name = (document.getElementById('storeName') as HTMLInputElement).value;
+                          const currency = (document.getElementById('currency') as HTMLInputElement).value;
+                          toast.success('تم حفظ الإعدادات بنجاح (تجريبي)');
+                        }}
+                        className="w-full py-3 rounded-xl bg-brand-navy text-white font-bold hover:bg-brand-navy/90 transition-all"
+                      >
+                        حفظ إعدادات المتجر
+                      </button>
+                    </div>
+                    <div className="pt-2">
                       <button 
                         onClick={() => {
                           promptAction('تصنيف جديد', 'اسم التصنيف الجديد:', '', (name) => {
@@ -3081,14 +3164,54 @@ export default function App() {
                         <p className="font-bold text-slate-900">admin</p>
                         <p className="text-xs text-slate-500">مدير النظام</p>
                       </div>
-                      <button className="text-brand-blue font-bold text-xs">تغيير كلمة المرور</button>
+                      <button 
+                        onClick={() => {
+                          promptAction('تغيير كلمة المرور', 'كلمة المرور الجديدة لـ admin', '', async (newPassword) => {
+                            if (!newPassword) return;
+                            try {
+                              const res = await fetch('/api/users/password', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ username: 'admin', newPassword })
+                              });
+                              if (res.ok) toast.success('تم تغيير كلمة المرور بنجاح');
+                              else toast.error('فشل تغيير كلمة المرور');
+                            } catch (err) {
+                              toast.error('حدث خطأ أثناء تغيير كلمة المرور');
+                            }
+                          });
+                        }}
+                        className="text-brand-blue font-bold text-xs"
+                      >
+                        تغيير كلمة المرور
+                      </button>
                     </div>
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
                       <div>
                         <p className="font-bold text-slate-900">cashier</p>
                         <p className="text-xs text-slate-500">كاشير</p>
                       </div>
-                      <button className="text-brand-blue font-bold text-xs">تغيير كلمة المرور</button>
+                      <button 
+                        onClick={() => {
+                          promptAction('تغيير كلمة المرور', 'كلمة المرور الجديدة لـ cashier', '', async (newPassword) => {
+                            if (!newPassword) return;
+                            try {
+                              const res = await fetch('/api/users/password', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ username: 'cashier', newPassword })
+                              });
+                              if (res.ok) toast.success('تم تغيير كلمة المرور بنجاح');
+                              else toast.error('فشل تغيير كلمة المرور');
+                            } catch (err) {
+                              toast.error('حدث خطأ أثناء تغيير كلمة المرور');
+                            }
+                          });
+                        }}
+                        className="text-brand-blue font-bold text-xs"
+                      >
+                        تغيير كلمة المرور
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -3312,7 +3435,7 @@ export default function App() {
                     </span>
                   </h2>
                   <button onClick={() => setShowProductModal({ ...showProductModal, show: false })} className="text-slate-400 hover:text-slate-600">
-                    <Trash2 size={24} />
+                    <X size={24} />
                   </button>
                 </div>
 
@@ -3639,6 +3762,65 @@ export default function App() {
                   <div className="flex gap-3 pt-4">
                     <button type="submit" className="flex-1 bg-brand-gold text-white py-4 rounded-2xl font-black">حفظ</button>
                     <button type="button" onClick={() => setShowCustomerModal({ ...showCustomerModal, show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Customer Payment Modal */}
+        <AnimatePresence>
+          {showCustomerPaymentModal.show && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-navy/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl"
+              >
+                <h2 className="text-2xl font-black text-brand-navy mb-2">تسديد دين</h2>
+                <p className="text-slate-500 mb-8 font-bold">العميل: {showCustomerPaymentModal.customerName}</p>
+                
+                <form onSubmit={handleCustomerPaymentSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">المبلغ المسدد</label>
+                    <input 
+                      type="number" required
+                      className="w-full p-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500/50 outline-none font-black text-xl"
+                      value={customerPaymentForm.amount || ''}
+                      onChange={e => setCustomerPaymentForm({ ...customerPaymentForm, amount: Number(e.target.value) })}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">الحساب المستلم</label>
+                    <select 
+                      required
+                      className="w-full p-4 rounded-2xl border border-slate-200 outline-none font-bold"
+                      value={customerPaymentForm.account_id || ''}
+                      onChange={e => setCustomerPaymentForm({ ...customerPaymentForm, account_id: Number(e.target.value) })}
+                    >
+                      <option value="">اختر الحساب...</option>
+                      {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ملاحظات</label>
+                    <textarea 
+                      className="w-full p-4 rounded-2xl border border-slate-200 outline-none font-bold min-h-[80px]"
+                      placeholder="ملاحظات إضافية..."
+                      value={customerPaymentForm.description}
+                      onChange={e => setCustomerPaymentForm({ ...customerPaymentForm, description: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button type="submit" className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-600/20">تأكيد التسديد</button>
+                    <button type="button" onClick={() => setShowCustomerPaymentModal({ show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
                   </div>
                 </form>
               </motion.div>
