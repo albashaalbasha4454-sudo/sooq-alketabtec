@@ -21,6 +21,7 @@ import {
   AlertCircle,
   CheckCircle2,
   DollarSign,
+  Clock,
   Briefcase,
   Sparkles,
   Bookmark,
@@ -34,7 +35,9 @@ import {
   Smartphone,
   Eye,
   EyeOff,
-  RefreshCw
+  RefreshCw,
+  Menu,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { io } from 'socket.io-client';
@@ -101,94 +104,281 @@ interface Purchase {
 // --- Components ---
 
 const Invoice = React.forwardRef<HTMLDivElement, { order: Order | null }>(({ order }, ref) => {
-  if (!order) return null;
+  if (!order) return <div ref={ref} className="hidden" />;
+  
+  const subtotal = order.total_amount - (order.tax_amount || 0) - (order.shipping_cost || 0);
+  const tax = order.tax_amount || 0;
+
   return (
-    <div ref={ref} className="p-10 bg-white text-slate-900 font-sans" dir="rtl">
-      <div className="flex justify-between items-start border-b-2 border-slate-900 pb-8 mb-8">
+    <div ref={ref} className="p-12 bg-white text-slate-900 font-sans printable-content" dir="rtl" style={{ width: '210mm', minHeight: '297mm' }}>
+      {/* Header */}
+      <div className="flex justify-between items-start border-b-4 border-brand-navy pb-8 mb-10">
+        <div className="flex items-center gap-4">
+          <div className="w-20 h-20 bg-brand-gold rounded-3xl flex items-center justify-center shadow-xl shadow-brand-gold/20">
+            <BookOpen size={40} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-black text-brand-navy tracking-tight">سوق الكتاب</h1>
+            <p className="text-brand-gold font-bold tracking-[0.2em] uppercase text-xs mt-1">Book Market Store</p>
+          </div>
+        </div>
+        <div className="text-left">
+          <h2 className="text-3xl font-black text-brand-navy mb-1">فاتورة ضريبية</h2>
+          <p className="text-slate-400 font-mono text-sm">TAX INVOICE</p>
+          <div className="mt-4 space-y-1 text-sm text-slate-500 font-bold">
+            <p>الرقم الضريبي: 300000000000003</p>
+            <p>الرياض، المملكة العربية السعودية</p>
+            <p>هاتف: 0500000000</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Info Grid */}
+      <div className="grid grid-cols-3 gap-8 mb-12 bg-slate-50 p-8 rounded-3xl border border-slate-100">
         <div>
-          <h1 className="text-4xl font-black text-brand-navy mb-2">فاتورة ضريبية</h1>
-          <p className="text-slate-500 font-bold">رقم الفاتورة: #{order.id}</p>
-          <p className="text-slate-500 font-bold">التاريخ: {new Date(order.created_at).toLocaleString('ar-SA')}</p>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">معلومات الفاتورة</h3>
+          <p className="text-sm font-black text-brand-navy">رقم الفاتورة: <span className="font-mono">#{order.id}</span></p>
+          <p className="text-sm font-bold text-slate-600 mt-1">التاريخ: {new Date(order.created_at).toLocaleDateString('ar-SA')}</p>
+          <p className="text-sm font-bold text-slate-600">الوقت: {new Date(order.created_at).toLocaleTimeString('ar-SA')}</p>
+        </div>
+        <div>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">العميل</h3>
+          <p className="text-sm font-black text-brand-navy">{order.display_customer_name || 'عميل نقدي'}</p>
+          <p className="text-sm font-bold text-slate-600 mt-1">{order.display_customer_phone || '-'}</p>
+          {order.shipping_address && <p className="text-xs text-slate-500 mt-1 leading-relaxed">{order.shipping_address}</p>}
+        </div>
+        <div>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">تفاصيل الدفع</h3>
+          <p className="text-sm font-black text-brand-navy">
+            طريقة الدفع: {
+              order.payment_method === 'cash' ? 'نقدي' : 
+              order.payment_method === 'alharam' ? 'حوالة الهرم' :
+              order.payment_method === 'sham_cash' ? 'شام كاش' :
+              order.payment_method === 'syriatel_cash' ? 'سيرياتيل كاش' : 'آجل'
+            }
+          </p>
+          <p className="text-sm font-bold text-slate-600 mt-1">
+            الحالة: <span className={order.payment_status === 'paid' ? 'text-emerald-600' : 'text-rose-600'}>
+              {order.payment_status === 'paid' ? 'مدفوع بالكامل' : order.payment_status === 'partial' ? 'مدفوع جزئياً' : 'غير مدفوع'}
+            </span>
+          </p>
+          <p className="text-xs text-slate-500 mt-1">الموظف: {order.cashier_name}</p>
+        </div>
+      </div>
+
+      {/* Items Table */}
+      <div className="mb-12">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b-2 border-brand-navy text-brand-navy">
+              <th className="py-4 text-right font-black text-sm">المنتج / الوصف</th>
+              <th className="py-4 text-center font-black text-sm">الكمية</th>
+              <th className="py-4 text-center font-black text-sm">سعر الوحدة</th>
+              <th className="py-4 text-left font-black text-sm">الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {order.items && order.items.length > 0 ? (
+              order.items.map((item) => (
+                <tr key={item.id} className="group">
+                  <td className="py-5">
+                    <div className="font-black text-brand-navy">{item.title}</div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">ISBN: {item.isbn || 'N/A'}</div>
+                  </td>
+                  <td className="py-5 text-center font-bold text-slate-600">{item.quantity}</td>
+                  <td className="py-5 text-center font-bold text-slate-600">{item.unit_price.toLocaleString()} ر.س</td>
+                  <td className="py-5 text-left font-black text-brand-navy">{item.total_price.toLocaleString()} ر.س</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="py-5 font-black text-brand-navy">مبيعات متنوعة</td>
+                <td className="py-5 text-center font-bold text-slate-600">1</td>
+                <td className="py-5 text-center font-bold text-slate-600">{(order.total_amount - (order.shipping_cost || 0)).toLocaleString()} ر.س</td>
+                <td className="py-5 text-left font-black text-brand-navy">{(order.total_amount - (order.shipping_cost || 0)).toLocaleString()} ر.س</td>
+              </tr>
+            )}
+            {order.shipping_cost > 0 && (
+              <tr className="bg-slate-50/50">
+                <td className="py-5 font-black text-brand-navy">رسوم الشحن والتوصيل</td>
+                <td className="py-5 text-center font-bold text-slate-600">1</td>
+                <td className="py-5 text-center font-bold text-slate-600">{order.shipping_cost.toLocaleString()} ر.س</td>
+                <td className="py-5 text-left font-black text-brand-navy">{order.shipping_cost.toLocaleString()} ر.س</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Totals */}
+      <div className="flex justify-between items-end">
+        <div className="text-slate-400 text-[10px] max-w-xs leading-relaxed">
+          <p className="font-bold mb-1">سياسة الاسترجاع والاستبدال:</p>
+          <p>يتم الاستبدال خلال 3 أيام من تاريخ الشراء بشرط سلامة الكتاب ووجود الفاتورة الأصلية. الكتب المفتوحة أو المتضررة لا تسترد ولا تستبدل.</p>
+        </div>
+        <div className="w-80 space-y-3 bg-brand-navy p-8 rounded-3xl text-white shadow-2xl shadow-brand-navy/20">
+          <div className="flex justify-between text-sm opacity-70">
+            <span>المجموع الفرعي (بدون ضريبة):</span>
+            <span className="font-mono">{subtotal.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex justify-between text-sm opacity-70">
+            <span>ضريبة القيمة المضافة (15%):</span>
+            <span className="font-mono">{tax.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex justify-between text-2xl font-black pt-4 border-t border-white/10 mt-2">
+            <span>الإجمالي:</span>
+            <span className="text-brand-gold font-mono">{order.total_amount.toLocaleString()} ر.س</span>
+          </div>
+          {order.payment_status !== 'paid' && (
+            <div className="space-y-2 pt-4 border-t border-white/10 mt-2">
+              <div className="flex justify-between text-sm opacity-70">
+                <span>المبلغ المدفوع:</span>
+                <span className="font-mono">{(order.paid_amount || 0).toLocaleString()} ر.س</span>
+              </div>
+              <div className="flex justify-between text-sm font-black text-brand-gold">
+                <span>المبلغ المتبقي:</span>
+                <span className="font-mono">{(order.total_amount - (order.paid_amount || 0)).toLocaleString()} ر.س</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-20 pt-10 border-t border-slate-100 flex justify-between items-center">
+        <div className="text-right">
+          <p className="text-sm font-black text-brand-navy">شكراً لزيارتكم سوق الكتاب!</p>
+          <p className="text-xs text-slate-400 mt-1">نتمنى لكم رحلة معرفية ممتعة</p>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <div className="w-24 h-24 border-2 border-slate-100 rounded-2xl flex items-center justify-center p-2">
+            {/* Simulated QR Code */}
+            <div className="w-full h-full bg-slate-50 grid grid-cols-4 grid-rows-4 gap-1 p-1 opacity-20">
+              {[...Array(16)].map((_, i) => (
+                <div key={i} className={`rounded-sm ${Math.random() > 0.5 ? 'bg-black' : 'bg-transparent'}`}></div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[8px] text-slate-300 uppercase tracking-tighter">Verified Digital Invoice</p>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const DailySalesReportPrint = React.forwardRef(({ orders, date }: { orders: Order[], date: string }, ref: any) => {
+  if (!orders) return <div ref={ref} className="hidden" />;
+  
+  const dailyOrders = orders.filter(o => o.created_at.startsWith(date));
+  const totalSales = dailyOrders.reduce((sum, o) => sum + o.total_amount, 0);
+  
+  const byMethod = {
+    cash: dailyOrders.filter(o => o.payment_method === 'cash').reduce((sum, o) => sum + o.total_amount, 0),
+    alharam: dailyOrders.filter(o => o.payment_method === 'alharam').reduce((sum, o) => sum + o.total_amount, 0),
+    sham_cash: dailyOrders.filter(o => o.payment_method === 'sham_cash').reduce((sum, o) => sum + o.total_amount, 0),
+    syriatel_cash: dailyOrders.filter(o => o.payment_method === 'syriatel_cash').reduce((sum, o) => sum + o.total_amount, 0),
+    debt: dailyOrders.filter(o => o.payment_method === 'debt').reduce((sum, o) => sum + o.total_amount, 0),
+  };
+
+  const byType = {
+    direct: dailyOrders.filter(o => o.order_type === 'direct').length,
+    shipment: dailyOrders.filter(o => o.order_type === 'shipment').length,
+    booking: dailyOrders.filter(o => o.order_type === 'booking').length,
+  };
+
+  const shippingRevenue = dailyOrders.reduce((sum, o) => sum + (o.shipping_cost || 0), 0);
+
+  return (
+    <div ref={ref} className="p-12 bg-white text-slate-900 printable-content" dir="rtl">
+      <div className="flex justify-between items-center border-b-4 border-brand-navy pb-8 mb-10">
+        <div>
+          <h1 className="text-3xl font-black text-brand-navy mb-2">تقرير المبيعات اليومي</h1>
+          <p className="text-slate-500 font-bold">التاريخ: {new Date(date).toLocaleDateString('ar-SA')}</p>
         </div>
         <div className="text-left">
           <h2 className="text-2xl font-black text-brand-gold">سوق الكتاب</h2>
-          <p className="text-sm text-slate-500">الرياض، المملكة العربية السعودية</p>
-          <p className="text-sm text-slate-500">هاتف: 0500000000</p>
-          <p className="text-sm text-slate-500">الرقم الضريبي: 300000000000003</p>
+          <p className="text-sm text-slate-400">ملخص العمليات اليومية</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-12 mb-12">
-        <div>
-          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">العميل</h3>
-          <p className="text-lg font-black">{order.display_customer_name || 'عميل نقدي'}</p>
-          <p className="text-slate-500 font-bold">{order.display_customer_phone}</p>
-          {order.shipping_address && <p className="text-slate-500 text-sm mt-1">{order.shipping_address}</p>}
+      <div className="grid grid-cols-3 gap-6 mb-10">
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+          <p className="text-xs font-black text-slate-400 uppercase mb-2">إجمالي المبيعات</p>
+          <p className="text-2xl font-black text-brand-navy">{totalSales.toLocaleString()} ر.س</p>
+          <p className="text-[10px] text-slate-400 mt-1">عدد العمليات: {dailyOrders.length}</p>
         </div>
-        <div className="text-left">
-          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">تفاصيل الطلب</h3>
-          <p className="text-sm font-black">
-            النوع: {order.order_type === 'shipment' ? 'شحن وتوصيل' : 
-                   order.order_type === 'booking' ? 'حجز مسبق' : 'بيع مباشر'}
-          </p>
-          <p className="text-sm font-black">
-            الدفع: {order.payment_status === 'paid' ? 'مدفوع' : order.payment_status === 'partial' ? 'جزئي' : 'غير مدفوع'}
-          </p>
-          <p className="text-sm font-black">
-            الموظف: {order.cashier_name} ({order.cashier_role === 'admin' ? 'مدير' : 'كاشير'})
-          </p>
-          <p className="text-slate-500 font-bold mt-2">طريقة الدفع: {order.payment_method === 'cash' ? 'نقدي' : 'شبكة'}</p>
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+          <p className="text-xs font-black text-slate-400 uppercase mb-2">إيرادات الشحن</p>
+          <p className="text-2xl font-black text-indigo-600">{shippingRevenue.toLocaleString()} ر.س</p>
+          <p className="text-[10px] text-slate-400 mt-1">طلبات الشحن: {byType.shipment}</p>
+        </div>
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+          <p className="text-xs font-black text-slate-400 uppercase mb-2">الحجوزات الجديدة</p>
+          <p className="text-2xl font-black text-amber-600">{byType.booking}</p>
+          <p className="text-[10px] text-slate-400 mt-1">بانتظار الاستلام</p>
         </div>
       </div>
 
-      <table className="w-full mb-12">
-        <thead>
-          <tr className="border-b-2 border-slate-900">
-            <th className="py-4 text-right font-black">المنتج</th>
-            <th className="py-4 text-center font-black">الكمية</th>
-            <th className="py-4 text-center font-black">سعر الوحدة</th>
-            <th className="py-4 text-left font-black">الإجمالي</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {/* Note: In a real app, we'd fetch order items. For now, we show a summary or placeholder */}
-          <tr>
-            <td className="py-4 font-bold">إجمالي المنتجات المباعة</td>
-            <td className="py-4 text-center">-</td>
-            <td className="py-4 text-center">-</td>
-            <td className="py-4 text-left font-bold">{order.total_amount - (order.shipping_cost || 0)} ر.س</td>
-          </tr>
-          {order.shipping_cost > 0 && (
-            <tr>
-              <td className="py-4 font-bold">رسوم الشحن</td>
-              <td className="py-4 text-center">1</td>
-              <td className="py-4 text-center">{order.shipping_cost}</td>
-              <td className="py-4 text-left font-bold">{order.shipping_cost} ر.س</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="space-y-8">
+        <section>
+          <h3 className="text-lg font-black text-brand-navy border-b-2 border-slate-100 pb-2 mb-4">تفصيل طرق الدفع</h3>
+          <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="font-bold text-slate-600">نقدي</span>
+              <span className="font-black">{byMethod.cash.toLocaleString()} ر.س</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="font-bold text-slate-600">حوالة الهرم</span>
+              <span className="font-black">{byMethod.alharam.toLocaleString()} ر.س</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="font-bold text-slate-600">شام كاش</span>
+              <span className="font-black">{byMethod.sham_cash.toLocaleString()} ر.س</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="font-bold text-slate-600">سيرياتيل كاش</span>
+              <span className="font-black">{byMethod.syriatel_cash.toLocaleString()} ر.س</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="font-bold text-slate-600">آجل / ديون</span>
+              <span className="font-black text-rose-600">{byMethod.debt.toLocaleString()} ر.س</span>
+            </div>
+          </div>
+        </section>
 
-      <div className="flex justify-end">
-        <div className="w-64 space-y-3">
-          <div className="flex justify-between text-slate-500 font-bold">
-            <span>المجموع الفرعي:</span>
-            <span>{(order.total_amount / 1.15).toFixed(2)} ر.س</span>
-          </div>
-          <div className="flex justify-between text-slate-500 font-bold">
-            <span>ضريبة القيمة المضافة (15%):</span>
-            <span>{(order.total_amount - (order.total_amount / 1.15)).toFixed(2)} ر.س</span>
-          </div>
-          <div className="flex justify-between text-2xl font-black border-t-2 border-slate-900 pt-3">
-            <span>الإجمالي:</span>
-            <span className="text-brand-gold">{order.total_amount} ر.س</span>
-          </div>
-        </div>
+        <section>
+          <h3 className="text-lg font-black text-brand-navy border-b-2 border-slate-100 pb-2 mb-4">سجل العمليات التفصيلي</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-right text-slate-400 border-b border-slate-100">
+                <th className="py-3 font-black">رقم الطلب</th>
+                <th className="py-3 font-black">العميل</th>
+                <th className="py-3 font-black">النوع</th>
+                <th className="py-3 font-black text-center">طريقة الدفع</th>
+                <th className="py-3 font-black text-left">المبلغ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {dailyOrders.map(order => (
+                <tr key={order.id}>
+                  <td className="py-3 font-mono">#{order.id}</td>
+                  <td className="py-3 font-bold">{order.display_customer_name || 'عميل نقدي'}</td>
+                  <td className="py-3 text-xs">
+                    {order.order_type === 'shipment' ? 'شحن' : order.order_type === 'booking' ? 'حجز' : 'مباشر'}
+                  </td>
+                  <td className="py-3 text-center text-xs">
+                    {order.payment_method === 'cash' ? 'نقدي' : order.payment_method === 'alharam' ? 'هرم' : 'إلكتروني'}
+                  </td>
+                  <td className="py-3 text-left font-black">{order.total_amount.toLocaleString()} ر.س</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       </div>
 
-      <div className="mt-24 pt-8 border-t border-slate-100 text-center">
-        <p className="text-sm font-bold text-slate-400">شكراً لتعاملكم معنا! نتمنى لكم قراءة ممتعة.</p>
-        <p className="text-[10px] text-slate-300 mt-2">هذه الفاتورة تم إنشاؤها آلياً بواسطة نظام سوق الكتاب</p>
+      <div className="mt-20 pt-8 border-t border-slate-100 text-center text-slate-400 text-[10px]">
+        <p>تم استخراج هذا التقرير آلياً من نظام سوق الكتاب بتاريخ {new Date().toLocaleString('ar-SA')}</p>
       </div>
     </div>
   );
@@ -241,8 +431,10 @@ const StatCard = ({ title, value, icon: Icon, color, trend }: { title: string, v
   </motion.div>
 );
 
-const FinancialReportPrint = React.forwardRef(({ data, dateRange }: { data: any, dateRange: any }, ref: any) => (
-  <div ref={ref} className="p-12 bg-white text-slate-900" dir="rtl">
+const FinancialReportPrint = React.forwardRef(({ data, dateRange }: { data: any, dateRange: any }, ref: any) => {
+  if (!data) return <div ref={ref} className="hidden" />;
+  return (
+    <div ref={ref} className="p-12 bg-white text-slate-900 printable-content" dir="rtl">
     <div className="flex justify-between items-center border-b-2 border-slate-900 pb-8 mb-8">
       <div>
         <h1 className="text-4xl font-black mb-2">سوق الكتاب</h1>
@@ -337,8 +529,9 @@ const FinancialReportPrint = React.forwardRef(({ data, dateRange }: { data: any,
     <div className="mt-20 pt-8 border-t border-slate-200 text-center text-slate-400 text-sm">
       <p>تم استخراج هذا التقرير آلياً من نظام سوق الكتاب</p>
     </div>
-  </div>
-));
+    </div>
+  );
+});
 
 // --- Main App ---
 
@@ -354,6 +547,9 @@ export default function App() {
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ show: boolean, title: string, message: string, onConfirm: () => void }>({ show: false, title: '', message: '', onConfirm: () => {} });
+  const [promptDialog, setPromptDialog] = useState<{ show: boolean, title: string, label: string, value: string, onConfirm: (val: string) => void }>({ show: false, title: '', label: '', value: '', onConfirm: () => {} });
 
   useEffect(() => {
     if (user) {
@@ -367,6 +563,14 @@ export default function App() {
     setUser(null);
     localStorage.removeItem('sooq_user');
     toast.success('تم تسجيل الخروج بنجاح');
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmDialog({ show: true, title, message, onConfirm });
+  };
+
+  const promptAction = (title: string, label: string, defaultValue: string, onConfirm: (val: string) => void) => {
+    setPromptDialog({ show: true, title, label, value: defaultValue, onConfirm });
   };
   
   // Data State
@@ -399,7 +603,14 @@ export default function App() {
   const [orderType, setOrderType] = useState<'direct' | 'shipment' | 'booking'>('direct');
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'unpaid' | 'partial'>('paid');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'alharam' | 'sham_cash' | 'syriatel_cash' | 'debt'>('cash');
+  const [paidAmount, setPaidAmount] = useState<number>(0);
   const [showFinancialModal, setShowFinancialModal] = useState<{ show: boolean, type: 'expense' | 'deposit' | 'withdrawal' | 'transfer' }>({ show: false, type: 'expense' });
+  const [showSupplierModal, setShowSupplierModal] = useState<{ show: boolean, mode: 'add' | 'edit', supplierId?: number }>({ show: false, mode: 'add' });
+  const [showCustomerModal, setShowCustomerModal] = useState<{ show: boolean, mode: 'add' | 'edit', customerId?: number }>({ show: false, mode: 'add' });
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ name: '', contact_person: '', phone: '' });
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '' });
+  const [purchaseForm, setPurchaseForm] = useState({ supplier_id: 0, items: [] as { book_id: number, quantity: number, unit_price: number }[] });
   const [financialForm, setFinancialForm] = useState({
     amount: 0,
     description: '',
@@ -414,15 +625,57 @@ export default function App() {
     clientName: '',
     clientPhone: ''
   });
+  const dailyReportRef = useRef(null);
+
+  const handlePrintDailyReport = useReactToPrint({
+    contentRef: dailyReportRef,
+    onBeforePrint: () => {
+      return new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
+    },
+    onAfterPrint: () => {
+      toast.success('تم طباعة التقرير اليومي بنجاح');
+    },
+    onPrintError: (error) => {
+      console.error('Printing failed:', error);
+      toast.error('فشلت عملية الطباعة');
+    }
+  });
+
   const reportPrintRef = useRef(null);
   const invoiceRef = useRef(null);
 
   const handlePrintInvoice = useReactToPrint({
     contentRef: invoiceRef,
+    onBeforePrint: () => {
+      return new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
+    },
+    onAfterPrint: () => {
+      console.log('Invoice printed successfully');
+    },
+    onPrintError: (error) => {
+      console.error('Printing failed:', error);
+      toast.error('فشلت عملية الطباعة، يرجى المحاولة مرة أخرى');
+    }
   });
 
   const handlePrintReport = useReactToPrint({
     contentRef: reportPrintRef,
+    onBeforePrint: () => {
+      return new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
+    },
+    onAfterPrint: () => {
+      console.log('Report printed successfully');
+    },
+    onPrintError: (error) => {
+      console.error('Printing failed:', error);
+      toast.error('فشلت عملية الطباعة، يرجى المحاولة مرة أخرى');
+    }
   });
 
   useEffect(() => {
@@ -475,17 +728,21 @@ export default function App() {
       fetchData();
       
       const socket = io({
-        transports: ['polling', 'websocket'],
-        reconnectionAttempts: 5,
-        timeout: 10000
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 10,
+        timeout: 20000,
+        autoConnect: true
       });
 
       socket.on('connect', () => {
-        console.log('Socket connected');
+        console.log('Socket connected:', socket.id);
       });
 
       socket.on('connect_error', (err) => {
-        console.error('Socket connection error:', err);
+        console.error('Socket connection error:', err.message);
+        if (err.message === 'xhr poll error') {
+          console.log('Polling failed, retrying with websocket...');
+        }
       });
 
       socket.on('data_update', (msg) => {
@@ -521,12 +778,19 @@ export default function App() {
     e.preventDefault();
     const endpoint = showProductModal.mode === 'add' ? '/api/books' : `/api/books/${showProductModal.bookId}`;
     const method = showProductModal.mode === 'add' ? 'POST' : 'PUT';
+    
+    let finalCategoryId = productForm.category_id;
+    if (finalCategoryId === 0 && categories.length > 0) {
+      const generalCat = categories.find(c => c.name === 'عام');
+      if (generalCat) finalCategoryId = generalCat.id;
+      else finalCategoryId = categories[0].id;
+    }
 
     try {
       const res = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...productForm, type: showProductModal.type })
+        body: JSON.stringify({ ...productForm, category_id: finalCategoryId, type: showProductModal.type })
       });
       if (res.ok) {
         setShowProductModal({ ...showProductModal, show: false });
@@ -549,17 +813,84 @@ export default function App() {
     }
   };
 
-  const deleteProduct = async (id: number) => {
-    if (!confirm('هل أنت متأكد من حذف هذا المنتج؟')) return;
+  const handleSupplierSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const endpoint = showSupplierModal.mode === 'add' ? '/api/suppliers' : `/api/suppliers/${showSupplierModal.supplierId}`;
+    const method = showSupplierModal.mode === 'add' ? 'POST' : 'PUT';
     try {
-      const res = await fetch(`/api/books/${id}`, { method: 'DELETE' });
+      const res = await fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(supplierForm)
+      });
       if (res.ok) {
+        setShowSupplierModal({ ...showSupplierModal, show: false });
+        setSupplierForm({ name: '', contact_person: '', phone: '' });
         fetchData();
-        toast.success('تم الحذف بنجاح');
+        toast.success('تم حفظ بيانات المورد');
       }
     } catch (err) {
-      toast.error('فشل الحذف');
+      toast.error('فشلت العملية');
     }
+  };
+
+  const handleCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const endpoint = showCustomerModal.mode === 'add' ? '/api/customers' : `/api/customers/${showCustomerModal.customerId}`;
+    const method = showCustomerModal.mode === 'add' ? 'POST' : 'PUT';
+    try {
+      const res = await fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerForm)
+      });
+      if (res.ok) {
+        setShowCustomerModal({ ...showCustomerModal, show: false });
+        setCustomerForm({ name: '', phone: '', email: '' });
+        fetchData();
+        toast.success('تم حفظ بيانات العميل');
+      }
+    } catch (err) {
+      toast.error('فشلت العملية');
+    }
+  };
+
+  const handlePurchaseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (purchaseForm.supplier_id === 0 || purchaseForm.items.length === 0) {
+      toast.error('يرجى اختيار مورد وإضافة منتجات');
+      return;
+    }
+    const total_amount = purchaseForm.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    try {
+      const res = await fetch('/api/purchases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...purchaseForm, total_amount })
+      });
+      if (res.ok) {
+        setShowPurchaseModal(false);
+        setPurchaseForm({ supplier_id: 0, items: [] });
+        fetchData();
+        toast.success('تم تسجيل فاتورة الشراء بنجاح');
+      }
+    } catch (err) {
+      toast.error('فشلت العملية');
+    }
+  };
+
+  const deleteProduct = async (id: number) => {
+    confirmAction('حذف المنتج', 'هل أنت متأكد من حذف هذا المنتج؟', async () => {
+      try {
+        const res = await fetch(`/api/books/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          fetchData();
+          toast.success('تم الحذف بنجاح');
+        }
+      } catch (err) {
+        toast.error('فشل الحذف');
+      }
+    });
   };
 
   const handleBulkPriceUpdate = async () => {
@@ -601,13 +932,13 @@ export default function App() {
         setShowFinancialModal({ show: false, type: 'expense' });
         setFinancialForm({ amount: 0, description: '', category: 'عام', account_id: 0, to_account_id: 0 });
         fetchData();
-        alert('تمت العملية بنجاح');
+        toast.success('تمت العملية بنجاح');
       } else {
         const data = await res.json();
-        alert(`خطأ: ${data.error || data.message || 'فشلت العملية'}`);
+        toast.error(`خطأ: ${data.error || data.message || 'فشلت العملية'}`);
       }
     } catch (err) {
-      alert('حدث خطأ أثناء تنفيذ العملية');
+      toast.error('حدث خطأ أثناء تنفيذ العملية');
     }
   };
 
@@ -617,34 +948,54 @@ export default function App() {
     }
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (retryCount = 0) => {
     try {
-      const [statsRes, booksRes, customersRes, ordersRes, expensesRes, suppliersRes, purchasesRes, categoriesRes, accountsRes, transactionsRes] = await Promise.all([
-        fetch('/api/stats'),
-        fetch('/api/books'),
-        fetch('/api/customers'),
-        fetch('/api/orders'),
-        fetch('/api/expenses'),
-        fetch('/api/suppliers'),
-        fetch('/api/purchases'),
-        fetch('/api/categories'),
-        fetch('/api/accounts'),
-        fetch('/api/transactions')
-      ]);
+      const endpoints = [
+        '/api/stats',
+        '/api/books',
+        '/api/customers',
+        '/api/orders',
+        '/api/expenses',
+        '/api/suppliers',
+        '/api/purchases',
+        '/api/categories',
+        '/api/accounts',
+        '/api/transactions'
+      ];
+
+      const responses = await Promise.all(endpoints.map(url => fetch(url)));
       
-      setStats(await statsRes.json());
-      setBooks(await booksRes.json());
-      setCustomers(await customersRes.json());
-      setOrders(await ordersRes.json());
-      setExpenses(await expensesRes.json());
-      setSuppliers(await suppliersRes.json());
-      setPurchases(await purchasesRes.json());
-      setCategories(await categoriesRes.json());
-      setAccounts(await accountsRes.json());
-      setTransactions(await transactionsRes.json());
+      // Check if all responses are OK
+      for (const res of responses) {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status} on ${res.url}`);
+      }
+
+      const [statsData, booksData, customersData, ordersData, expensesData, suppliersData, purchasesData, categoriesData, accountsData, transactionsData] = await Promise.all(responses.map(res => res.json()));
+      
+      setStats(statsData);
+      setBooks(booksData);
+      setCustomers(customersData);
+      setOrders(ordersData);
+      setExpenses(expensesData);
+      setSuppliers(suppliersData);
+      setPurchases(purchasesData);
+      setCategories(categoriesData);
+      setAccounts(accountsData);
+      setTransactions(transactionsData);
       fetchReports();
+      setServerStatus('online');
     } catch (err) {
       console.error('Error fetching data:', err);
+      setServerStatus('offline');
+      
+      // Retry logic
+      if (retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000;
+        console.log(`Retrying fetch in ${delay}ms... (Attempt ${retryCount + 1})`);
+        setTimeout(() => fetchData(retryCount + 1), delay);
+      } else {
+        toast.error('فشل الاتصال بالخادم، يرجى التأكد من تشغيل النظام');
+      }
     }
   };
 
@@ -710,7 +1061,26 @@ export default function App() {
   };
 
   const addToCart = (book: Book) => {
-    if (book.stock_quantity <= 0) return;
+    if (book.stock_quantity <= 0) {
+      toast('هذا الكتاب غير متوفر حالياً', {
+        description: 'هل تود تسجيل طلب حجز لهذا الكتاب؟',
+        action: {
+          label: 'تسجيل طلب حجز',
+          onClick: () => {
+            setOrderType('booking');
+            setCart(prev => {
+              const existing = prev.find(item => item.id === book.id);
+              if (existing) {
+                return prev.map(item => item.id === book.id ? { ...item, quantity: item.quantity + 1 } : item);
+              }
+              return [...prev, { ...book, quantity: 1 }];
+            });
+            toast.success('تمت إضافة الكتاب كطلب حجز');
+          }
+        }
+      });
+      return;
+    }
     setCart(prev => {
       const existing = prev.find(item => item.id === book.id);
       if (existing) {
@@ -729,7 +1099,11 @@ export default function App() {
     
     const subtotal = cart.reduce((sum, item) => sum + (item.selling_price * item.quantity), 0);
     const tax = subtotal * 0.15; // 15% VAT
-    const total = subtotal + tax + (orderType === 'shipment' ? Number(shipmentDetails.cost) : 0);
+    const total = subtotal + tax + ((orderType === 'shipment' || orderType === 'booking') ? Number(shipmentDetails.cost) : 0);
+
+    let finalPaidAmount = 0;
+    if (paymentStatus === 'paid') finalPaidAmount = total;
+    else if (paymentStatus === 'partial') finalPaidAmount = paidAmount;
 
     try {
       const res = await fetch('/api/orders', {
@@ -745,6 +1119,7 @@ export default function App() {
           payment_method: paymentMethod,
           order_type: orderType,
           payment_status: paymentStatus,
+          paid_amount: finalPaidAmount,
           shipping_address: (orderType === 'shipment' || orderType === 'booking') ? shipmentDetails.address : null,
           shipping_cost: (orderType === 'shipment' || orderType === 'booking') ? Number(shipmentDetails.cost) : 0,
           source: (orderType === 'shipment' || orderType === 'booking') ? shipmentDetails.source : null,
@@ -760,6 +1135,7 @@ export default function App() {
         setOrderType('direct');
         setPaymentStatus('paid');
         setPaymentMethod('cash');
+        setPaidAmount(0);
         setShipmentDetails({
           address: '',
           cost: 0,
@@ -769,9 +1145,10 @@ export default function App() {
         });
         fetchData();
         setShowCheckoutSuccess({ show: true, orderId: data.orderId });
+        toast.success('تم إتمام الطلب بنجاح');
       }
     } catch (err) {
-      alert('حدث خطأ أثناء إتمام الطلب');
+      toast.error('حدث خطأ أثناء إتمام الطلب');
     }
   };
 
@@ -785,9 +1162,10 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         fetchData();
+        toast.success('تم تحديث حالة الشحن');
       }
     } catch (err) {
-      alert('حدث خطأ أثناء تحديث حالة الشحن');
+      toast.error('حدث خطأ أثناء تحديث حالة الشحن');
     }
   };
 
@@ -801,9 +1179,25 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         fetchData();
+        toast.success('تم تحديث الحالة بنجاح');
       }
     } catch (err) {
-      alert('حدث خطأ أثناء تحديث الحالة');
+      toast.error('حدث خطأ أثناء تحديث الحالة');
+    }
+  };
+
+  const printOrderById = async (orderId: number) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}`);
+      const fullOrder = await res.json();
+      setSelectedOrder(fullOrder);
+      // Wait for state to update and component to render
+      setTimeout(() => {
+        handlePrintInvoice();
+      }, 1000);
+    } catch (err) {
+      console.error('Error fetching order for print:', err);
+      toast.error('فشل تحميل بيانات الفاتورة للطباعة');
     }
   };
 
@@ -890,34 +1284,59 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex bg-brand-bg">
+    <div className="min-h-screen flex bg-brand-bg relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-brand-navy/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
-      <aside className="w-72 bg-white border-l border-slate-200 p-6 flex flex-col gap-6 sticky top-0 h-screen shadow-xl z-20 transition-colors duration-300">
-        <Logo />
+      <aside className={`
+        fixed inset-y-0 right-0 z-50 w-72 bg-white border-l border-slate-200 p-6 flex flex-col gap-6 
+        transition-transform duration-300 lg:translate-x-0 lg:static lg:h-screen shadow-xl
+        ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}
+      `}>
+        <div className="flex items-center justify-between lg:block">
+          <Logo />
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-xl"
+          >
+            <X size={24} />
+          </button>
+        </div>
 
         <nav className="flex-1 flex flex-col gap-1 overflow-y-auto pr-1 custom-scrollbar">
-          <SidebarItem icon={LayoutDashboard} label="لوحة التحكم" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          <SidebarItem icon={ShoppingCart} label="نقطة البيع (POS)" active={activeTab === 'pos'} onClick={() => setActiveTab('pos')} />
+          <SidebarItem icon={LayoutDashboard} label="لوحة التحكم" active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }} />
+          <SidebarItem icon={ShoppingCart} label="نقطة البيع (POS)" active={activeTab === 'pos'} onClick={() => { setActiveTab('pos'); setIsSidebarOpen(false); }} />
           
           {user.role === 'admin' && (
             <>
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 mb-2 px-4">المخزون والمبيعات</div>
-              <SidebarItem icon={FileText} label="الفواتير" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
-              <SidebarItem icon={Package} label="مخزون الكتب" active={activeTab === 'books'} onClick={() => setActiveTab('books')} />
-              <SidebarItem icon={Sparkles} label="مخزون التكنولوجيا" active={activeTab === 'tech'} onClick={() => setActiveTab('tech')} />
-              <SidebarItem icon={ListTodo} label="الطلبات المحجوزة" active={activeTab === 'requested'} onClick={() => setActiveTab('requested')} />
+              <SidebarItem icon={FileText} label="الفواتير" active={activeTab === 'orders'} onClick={() => { setActiveTab('orders'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Package} label="مخزون الكتب" active={activeTab === 'books'} onClick={() => { setActiveTab('books'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Sparkles} label="مخزون التكنولوجيا" active={activeTab === 'tech'} onClick={() => { setActiveTab('tech'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={ListTodo} label="الطلبات المحجوزة" active={activeTab === 'requested'} onClick={() => { setActiveTab('requested'); setIsSidebarOpen(false); }} />
               
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 mb-2 px-4">المشتريات والموردين</div>
-              <SidebarItem icon={Briefcase} label="المشتريات" active={activeTab === 'purchases'} onClick={() => setActiveTab('purchases')} />
-              <SidebarItem icon={Users} label="الموردون" active={activeTab === 'suppliers'} onClick={() => setActiveTab('suppliers')} />
+              <SidebarItem icon={Briefcase} label="المشتريات" active={activeTab === 'purchases'} onClick={() => { setActiveTab('purchases'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Users} label="الموردون" active={activeTab === 'suppliers'} onClick={() => { setActiveTab('suppliers'); setIsSidebarOpen(false); }} />
               
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 mb-2 px-4">العملاء والمالية</div>
-              <SidebarItem icon={Users} label="العملاء" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
-              <SidebarItem icon={Landmark} label="الخزينة والحسابات" active={activeTab === 'treasury'} onClick={() => setActiveTab('treasury')} />
-              <SidebarItem icon={Wallet} label="المصروفات" active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} />
-              <SidebarItem icon={Truck} label="تتبع الشحنات" active={activeTab === 'shipments'} onClick={() => setActiveTab('shipments')} />
-              <SidebarItem icon={TrendingUp} label="التقارير المالية" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
-              <SidebarItem icon={Settings} label="الإعدادات" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+              <SidebarItem icon={Users} label="العملاء" active={activeTab === 'customers'} onClick={() => { setActiveTab('customers'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Landmark} label="الخزينة والحسابات" active={activeTab === 'treasury'} onClick={() => { setActiveTab('treasury'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Wallet} label="المصروفات" active={activeTab === 'expenses'} onClick={() => { setActiveTab('expenses'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Truck} label="تتبع الشحنات" active={activeTab === 'shipments'} onClick={() => { setActiveTab('shipments'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={TrendingUp} label="التقارير المالية" active={activeTab === 'reports'} onClick={() => { setActiveTab('reports'); setIsSidebarOpen(false); }} />
+              <SidebarItem icon={Settings} label="الإعدادات" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }} />
             </>
           )}
         </nav>
@@ -960,11 +1379,22 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto transition-colors duration-300">
+      <main className="flex-1 p-4 lg:p-8 overflow-y-auto transition-colors duration-300">
         <Toaster position="top-center" richColors />
         
+        {/* Mobile Header */}
+        <div className="lg:hidden flex items-center justify-between mb-6 bg-white p-4 rounded-2xl border border-slate-100 card-shadow">
+          <Logo />
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 text-brand-navy hover:bg-slate-100 rounded-xl transition-colors"
+          >
+            <Menu size={24} />
+          </button>
+        </div>
+        
         {/* Hidden Invoice for Printing */}
-        <div className="hidden">
+        <div style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
           <Invoice ref={invoiceRef} order={selectedOrder} />
         </div>
 
@@ -1050,10 +1480,8 @@ export default function App() {
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
-                      const order = orders.find(o => o.id === showCheckoutSuccess.orderId);
-                      if (order) {
-                        setSelectedOrder(order);
-                        setTimeout(() => handlePrintInvoice(), 100);
+                      if (showCheckoutSuccess.orderId) {
+                        printOrderById(showCheckoutSuccess.orderId);
                       }
                     }}
                     className="w-full bg-brand-navy text-white py-4 rounded-2xl font-black flex items-center justify-center gap-2 shadow-xl shadow-brand-navy/20"
@@ -1089,6 +1517,14 @@ export default function App() {
                   <p className="text-slate-500">إليك ملخص أداء المكتبة اليوم</p>
                 </div>
                 <div className="flex gap-4">
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={fetchData}
+                    className="p-2 bg-white text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                    title="تحديث البيانات"
+                  >
+                    <RefreshCw size={20} />
+                  </motion.button>
                   <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 flex items-center gap-2 text-slate-600">
                     <Calendar size={18} />
                     <span className="font-semibold">{new Date().toLocaleDateString('ar-SA')}</span>
@@ -1096,11 +1532,12 @@ export default function App() {
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="إجمالي المبيعات" value={`${stats?.totalSales.toLocaleString()} ر.س`} icon={DollarSign} color="bg-brand-navy" trend="+12%" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                <StatCard title="مبيعات اليوم" value={`${stats?.todaySales.toLocaleString()} ر.س`} icon={DollarSign} color="bg-emerald-600" />
                 <StatCard title="صافي أرباح اليوم" value={`${stats?.todayNetProfit.toLocaleString()} ر.س`} icon={TrendingUp} color="bg-brand-gold" />
-                <StatCard title="عدد الكتب" value={stats?.totalBooks || 0} icon={BookOpen} color="bg-indigo-600" />
+                <StatCard title="إجمالي المبيعات" value={`${stats?.totalSales.toLocaleString()} ر.س`} icon={CreditCard} color="bg-blue-600" />
                 <StatCard title="نقص المخزون" value={stats?.lowStock || 0} icon={AlertCircle} color="bg-rose-600" />
+                <StatCard title="دفعات متأخرة" value={stats?.overduePayments || 0} icon={Clock} color="bg-amber-600" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1115,8 +1552,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <div className="h-[350px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[350px] w-full">
+                      <ResponsiveContainer width="100%" height="100%" debounce={100}>
                         <AreaChart data={[
                           { name: 'السبت', sales: 4000 },
                           { name: 'الأحد', sales: 3000 },
@@ -1212,6 +1649,12 @@ export default function App() {
                               <li className="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
                                 <AlertCircle size={16} className="text-rose-500" />
                                 <span>لديك {stats.lowStock} كتب قاربت على النفاد.</span>
+                              </li>
+                            )}
+                            {stats?.overduePayments > 0 && (
+                              <li className="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
+                                <Clock size={16} className="text-amber-500" />
+                                <span>لديك {stats.overduePayments} فواتير دفع جزئي أو غير مدفوعة.</span>
                               </li>
                             )}
                             <li className="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
@@ -1441,8 +1884,7 @@ export default function App() {
                         key={book.id}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => addToCart(book)}
-                        disabled={book.stock_quantity <= 0}
-                        className={`bg-white p-5 rounded-2xl border border-slate-100 card-shadow text-right transition-all group select-none touch-manipulation ${book.stock_quantity <= 0 ? 'opacity-50 grayscale cursor-not-allowed' : 'active:bg-slate-50'}`}
+                        className={`bg-white p-5 rounded-2xl border border-slate-100 card-shadow text-right transition-all group select-none touch-manipulation ${book.stock_quantity <= 0 ? 'opacity-70 grayscale-0 border-rose-200' : 'active:bg-slate-50'}`}
                       >
                         <div className="aspect-[3/4] bg-slate-100 rounded-xl mb-4 flex items-center justify-center text-slate-300 group-hover:text-brand-blue transition-colors">
                           <BookOpen size={48} />
@@ -1463,7 +1905,18 @@ export default function App() {
               {/* Cart Sidebar */}
               <div className="w-96 bg-white rounded-3xl border border-slate-200 flex flex-col shadow-2xl overflow-hidden">
                 <div className="p-6 border-b border-slate-100 space-y-4">
-                  <h3 className="text-xl font-bold text-slate-900">سلة المشتريات</h3>
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xl font-bold text-slate-900">سلة المشتريات</h3>
+                    {cart.length > 0 && (
+                      <button 
+                        onClick={() => setCart([])}
+                        className="text-xs font-bold text-rose-500 hover:text-rose-600 transition-colors flex items-center gap-1"
+                      >
+                        <Trash2 size={14} />
+                        تفريغ السلة
+                      </button>
+                    )}
+                  </div>
                   
                   <div className="flex gap-2 p-1.5 bg-slate-100 dark:bg-zinc-800/50 rounded-2xl">
                     <button 
@@ -1519,6 +1972,21 @@ export default function App() {
                         غير مدفوع
                       </button>
                     </div>
+                    {paymentStatus === 'partial' && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-2"
+                      >
+                        <input 
+                          type="number" 
+                          placeholder="المبلغ المدفوع حالياً..." 
+                          className="w-full p-3 text-xs rounded-xl border border-slate-200 bg-white outline-none focus:ring-2 focus:ring-amber-300 font-bold"
+                          value={paidAmount || ''}
+                          onChange={e => setPaidAmount(Number(e.target.value))}
+                        />
+                      </motion.div>
+                    )}
                   </div>
 
                   {(orderType === 'shipment' || orderType === 'booking') && (
@@ -1550,10 +2018,10 @@ export default function App() {
                         />
                       )}
                       <div className="flex gap-2">
-                        {orderType === 'shipment' && (
+                        {(orderType === 'shipment' || orderType === 'booking') && (
                           <input 
                             type="number" 
-                            placeholder="تكلفة الشحن" 
+                            placeholder={orderType === 'shipment' ? "تكلفة الشحن" : "رسوم إضافية/شحن"} 
                             className="flex-1 p-3 text-xs rounded-xl border border-white/50 bg-white/80 outline-none focus:ring-2 focus:ring-indigo-300 font-bold"
                             value={shipmentDetails.cost || ''}
                             onChange={e => setShipmentDetails({...shipmentDetails, cost: Number(e.target.value)})}
@@ -1624,7 +2092,7 @@ export default function App() {
                     </div>
                     <div className="flex justify-between text-xl font-bold text-slate-900 pt-2 border-t border-slate-200">
                       <span>الإجمالي</span>
-                      <span>{(cart.reduce((sum, item) => sum + (item.selling_price * item.quantity), 0) * 1.15).toFixed(2)} ر.س</span>
+                      <span>{(cart.reduce((sum, item) => sum + (item.selling_price * item.quantity), 0) * 1.15 + ((orderType === 'shipment' || orderType === 'booking') ? Number(shipmentDetails.cost || 0) : 0)).toLocaleString()} ر.س</span>
                     </div>
                   </div>
 
@@ -1699,6 +2167,25 @@ export default function App() {
                   <p className="text-slate-500 text-sm">إدارة قائمة الكتب وتتبع مستويات المخزون</p>
                 </div>
                 <div className="flex items-center gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handlePrintDailyReport()}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-brand-gold text-white rounded-xl font-bold text-sm shadow-lg shadow-brand-gold/20"
+                  >
+                    <Printer size={18} />
+                    تقرير المبيعات اليومي
+                  </motion.button>
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="text" 
+                      placeholder="بحث في الكتب..." 
+                      className="w-full pr-12 pl-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-brand-gold/50 font-bold"
+                      value={posSearch}
+                      onChange={e => setPosSearch(e.target.value)}
+                    />
+                  </div>
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
                     onClick={() => setShowBulkPriceModal(true)}
@@ -1745,7 +2232,16 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {books.filter(b => b.type === 'book').map(book => (
+                    {books.filter(b => b.type === 'book' && (b.title.includes(posSearch) || b.author.includes(posSearch) || b.isbn?.includes(posSearch))).length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                          <div className="flex flex-col items-center gap-2">
+                            <Package size={48} className="opacity-20" />
+                            <p className="font-bold">لا توجد كتب مطابقة للبحث</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : books.filter(b => b.type === 'book' && (b.title.includes(posSearch) || b.author.includes(posSearch) || b.isbn?.includes(posSearch))).map(book => (
                       <tr key={book.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-900">{book.title}</td>
                         <td className="px-6 py-4 text-slate-600">{book.author}</td>
@@ -1809,6 +2305,24 @@ export default function App() {
                   <p className="text-slate-500 text-sm">إدارة الجوالات والإكسسوارات والمنتجات التقنية</p>
                 </div>
                 <div className="flex items-center gap-3">
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={fetchData}
+                    className="p-3 bg-white text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                    title="تحديث البيانات"
+                  >
+                    <RefreshCw size={20} />
+                  </motion.button>
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="text" 
+                      placeholder="بحث في المنتجات..." 
+                      className="w-full pr-12 pl-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-brand-gold/50 font-bold"
+                      value={posSearch}
+                      onChange={e => setPosSearch(e.target.value)}
+                    />
+                  </div>
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
                     onClick={() => setShowBulkPriceModal(true)}
@@ -1855,7 +2369,16 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {books.filter(b => b.type === 'tech').map(product => (
+                    {books.filter(b => b.type === 'tech' && (b.title.includes(posSearch) || b.author.includes(posSearch) || b.isbn?.includes(posSearch))).length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                          <div className="flex flex-col items-center gap-2">
+                            <Sparkles size={48} className="opacity-20" />
+                            <p className="font-bold">لا توجد منتجات تقنية مطابقة للبحث</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : books.filter(b => b.type === 'tech' && (b.title.includes(posSearch) || b.author.includes(posSearch) || b.isbn?.includes(posSearch))).map(product => (
                       <tr key={product.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-900">{product.title}</td>
                         <td className="px-6 py-4 text-slate-600">{product.author}</td>
@@ -1918,6 +2441,14 @@ export default function App() {
                   <h1 className="text-2xl font-black text-brand-navy">سجل الفواتير والطلبات</h1>
                   <p className="text-slate-500 text-sm">تتبع كافة العمليات المالية وحالات الشحن</p>
                 </div>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={fetchData}
+                  className="p-3 bg-white text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                  title="تحديث البيانات"
+                >
+                  <RefreshCw size={20} />
+                </motion.button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -1986,6 +2517,22 @@ export default function App() {
                         const matchesStatus = orderFilterStatus === 'all' || o.status === orderFilterStatus;
                         const matchesPayment = orderFilterPayment === 'all' || o.payment_status === orderFilterPayment;
                         return matchesSearch && matchesType && matchesStatus && matchesPayment;
+                      }).length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                            <div className="flex flex-col items-center gap-2">
+                              <FileText size={48} className="opacity-20" />
+                              <p className="font-bold">لا توجد فواتير مطابقة للبحث</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : orders
+                      .filter(o => {
+                        const matchesSearch = o.id.toString().includes(orderSearch) || (o.display_customer_name || '').includes(orderSearch);
+                        const matchesType = orderFilterType === 'all' || o.order_type === orderFilterType;
+                        const matchesStatus = orderFilterStatus === 'all' || o.status === orderFilterStatus;
+                        const matchesPayment = orderFilterPayment === 'all' || o.payment_status === orderFilterPayment;
+                        return matchesSearch && matchesType && matchesStatus && matchesPayment;
                       })
                       .map(order => (
                       <tr key={order.id} className="hover:bg-slate-50 transition-colors">
@@ -2044,29 +2591,52 @@ export default function App() {
                         <td className="px-6 py-4">
                           <div className="flex gap-2">
                             <button 
-                              onClick={() => {
-                                setSelectedOrder(order);
-                                setTimeout(() => handlePrintInvoice(), 100);
-                              }}
+                              onClick={() => printOrderById(order.id)}
                               className="p-2 text-slate-400 hover:text-brand-blue hover:bg-blue-50 rounded-lg transition-colors"
                             >
                               <Printer size={18} />
                             </button>
                             <button 
                               onClick={() => {
-                                const amount = prompt('أدخل مبلغ المرتجع:');
-                                const reason = prompt('سبب المرتجع:');
-                                if (amount && !isNaN(Number(amount))) {
-                                  fetch('/api/returns', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ order_id: order.id, amount: Number(amount), reason })
-                                  }).then(() => fetchData());
-                                }
+                                promptAction('تسجيل مرتجع', 'أدخل مبلغ المرتجع:', '', (amount) => {
+                                  if (amount && !isNaN(Number(amount))) {
+                                    promptAction('سبب المرتجع', 'أدخل سبب المرتجع:', '', (reason) => {
+                                      fetch('/api/returns', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ order_id: order.id, amount: Number(amount), reason })
+                                      }).then(() => {
+                                        fetchData();
+                                        toast.success('تم تسجيل المرتجع بنجاح');
+                                      });
+                                    });
+                                  }
+                                });
                               }}
                               className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="مرتجع"
                             >
                               <ArrowRightLeft size={18} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                confirmAction('إلغاء الفاتورة', 'هل أنت متأكد من إلغاء هذه الفاتورة نهائياً؟ سيتم استعادة المخزون وحذف السجل.', () => {
+                                  fetch(`/api/orders/${order.id}`, { method: 'DELETE' })
+                                    .then(res => res.json())
+                                    .then(data => {
+                                      if (data.success) {
+                                        toast.success('تم إلغاء الفاتورة بنجاح');
+                                        fetchData();
+                                      } else {
+                                        toast.error('فشل في إلغاء الفاتورة');
+                                      }
+                                    });
+                                });
+                              }}
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="إلغاء نهائي"
+                            >
+                              <Trash2 size={18} />
                             </button>
                           </div>
                         </td>
@@ -2204,15 +2774,20 @@ export default function App() {
                       <div className="grid grid-cols-2 gap-4">
                         <button 
                           onClick={() => {
-                            const amount = prompt('أدخل مبلغ الإيداع:');
-                            const desc = prompt('الوصف:');
-                            if (amount && !isNaN(Number(amount))) {
-                              fetch('/api/capital-movements', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ type: 'deposit', amount: Number(amount), description: desc })
-                              }).then(() => fetchReports());
-                            }
+                            promptAction('إيداع رأس مال', 'أدخل مبلغ الإيداع:', '', (amount) => {
+                              if (amount && !isNaN(Number(amount))) {
+                                promptAction('وصف الإيداع', 'أدخل وصف العملية:', '', (desc) => {
+                                  fetch('/api/capital-movements', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ type: 'deposit', amount: Number(amount), description: desc })
+                                  }).then(() => {
+                                    fetchReports();
+                                    toast.success('تم الإيداع بنجاح');
+                                  });
+                                });
+                              }
+                            });
                           }}
                           className="py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors"
                         >
@@ -2220,15 +2795,20 @@ export default function App() {
                         </button>
                         <button 
                           onClick={() => {
-                            const amount = prompt('أدخل مبلغ المسحوبات:');
-                            const desc = prompt('الوصف:');
-                            if (amount && !isNaN(Number(amount))) {
-                              fetch('/api/capital-movements', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ type: 'withdrawal', amount: Number(amount), description: desc })
-                              }).then(() => fetchReports());
-                            }
+                            promptAction('تسجيل مسحوبات', 'أدخل مبلغ المسحوبات:', '', (amount) => {
+                              if (amount && !isNaN(Number(amount))) {
+                                promptAction('وصف المسحوبات', 'أدخل وصف العملية:', '', (desc) => {
+                                  fetch('/api/capital-movements', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ type: 'withdrawal', amount: Number(amount), description: desc })
+                                  }).then(() => {
+                                    fetchReports();
+                                    toast.success('تم تسجيل المسحوبات');
+                                  });
+                                });
+                              }
+                            });
                           }}
                           className="py-2 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-700 transition-colors"
                         >
@@ -2245,14 +2825,15 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="hidden">
+              <div style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
+                <DailySalesReportPrint ref={dailyReportRef} orders={orders} date={new Date().toISOString().split('T')[0]} />
                 <FinancialReportPrint ref={reportPrintRef} data={reportData} dateRange={dateRange} />
               </div>
 
               <div className="bg-white p-8 rounded-3xl border border-slate-100 card-shadow">
                 <h3 className="text-lg font-bold text-slate-900 mb-8">تحليل المبيعات اليومي</h3>
-                <div className="h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="h-[400px] w-full">
+                  <ResponsiveContainer width="100%" height="100%" debounce={100}>
                     <AreaChart data={reportData?.dailySales || []}>
                       <defs>
                         <linearGradient id="reportGradient" x1="0" y1="0" x2="0" y2="1">
@@ -2288,6 +2869,10 @@ export default function App() {
                 </div>
                 <motion.button 
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setCustomerForm({ name: '', phone: '', email: '' });
+                    setShowCustomerModal({ show: true, mode: 'add' });
+                  }}
                   className="flex items-center gap-2 bg-brand-gold text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-brand-gold/20"
                 >
                   <Plus size={20} />
@@ -2340,6 +2925,10 @@ export default function App() {
                 </div>
                 <motion.button 
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setSupplierForm({ name: '', contact_person: '', phone: '' });
+                    setShowSupplierModal({ show: true, mode: 'add' });
+                  }}
                   className="flex items-center gap-2 bg-brand-navy text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-brand-navy/20"
                 >
                   <Plus size={20} />
@@ -2390,6 +2979,10 @@ export default function App() {
                 </div>
                 <motion.button 
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setPurchaseForm({ supplier_id: 0, items: [] });
+                    setShowPurchaseModal(true);
+                  }}
                   className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-indigo-600/20"
                 >
                   <Plus size={20} />
@@ -2452,6 +3045,28 @@ export default function App() {
                       <label className="block text-sm font-bold text-slate-700 mb-2">العملة</label>
                       <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200" defaultValue="ر.س" />
                     </div>
+                    <div className="pt-4">
+                      <button 
+                        onClick={() => {
+                          promptAction('تصنيف جديد', 'اسم التصنيف الجديد:', '', (name) => {
+                            if (name) {
+                              fetch('/api/categories', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name })
+                              }).then(() => {
+                                fetchData();
+                                toast.success('تمت إضافة التصنيف');
+                              });
+                            }
+                          });
+                        }}
+                        className="w-full py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Plus size={18} />
+                        إضافة تصنيف منتجات
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2494,17 +3109,29 @@ export default function App() {
                   <p className="text-slate-500">إدارة الأرصدة، التحويلات، والحركات المالية الدقيقة</p>
                 </div>
                 <div className="flex gap-3">
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={fetchData}
+                    className="p-3 bg-white text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                    title="تحديث البيانات"
+                  >
+                    <RefreshCw size={20} />
+                  </motion.button>
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
-                      const name = prompt('اسم الحساب الجديد:');
-                      if (name) {
-                        fetch('/api/accounts', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ name })
-                        }).then(() => fetchData());
-                      }
+                      promptAction('حساب جديد', 'اسم الحساب الجديد:', '', (name) => {
+                        if (name) {
+                          fetch('/api/accounts', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name })
+                          }).then(() => {
+                            fetchData();
+                            toast.success('تم إنشاء الحساب');
+                          });
+                        }
+                      });
                     }}
                     className="flex items-center gap-2 bg-brand-navy text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-brand-navy/20"
                   >
@@ -2912,6 +3539,297 @@ export default function App() {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Supplier Modal */}
+        <AnimatePresence>
+          {showSupplierModal.show && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl"
+              >
+                <h2 className="text-2xl font-black text-brand-navy mb-8">
+                  {showSupplierModal.mode === 'add' ? 'إضافة مورد جديد' : 'تعديل بيانات المورد'}
+                </h2>
+                <form onSubmit={handleSupplierSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">اسم المورد</label>
+                    <input 
+                      type="text" required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={supplierForm.name}
+                      onChange={e => setSupplierForm({ ...supplierForm, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">المسؤول</label>
+                    <input 
+                      type="text" required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={supplierForm.contact_person}
+                      onChange={e => setSupplierForm({ ...supplierForm, contact_person: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">رقم الهاتف</label>
+                    <input 
+                      type="text" required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={supplierForm.phone}
+                      onChange={e => setSupplierForm({ ...supplierForm, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button type="submit" className="flex-1 bg-brand-navy text-white py-4 rounded-2xl font-black">حفظ</button>
+                    <button type="button" onClick={() => setShowSupplierModal({ ...showSupplierModal, show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Customer Modal */}
+        <AnimatePresence>
+          {showCustomerModal.show && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl"
+              >
+                <h2 className="text-2xl font-black text-brand-navy mb-8">
+                  {showCustomerModal.mode === 'add' ? 'إضافة عميل جديد' : 'تعديل بيانات العميل'}
+                </h2>
+                <form onSubmit={handleCustomerSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">اسم العميل</label>
+                    <input 
+                      type="text" required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={customerForm.name}
+                      onChange={e => setCustomerForm({ ...customerForm, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">رقم الهاتف</label>
+                    <input 
+                      type="text" required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={customerForm.phone}
+                      onChange={e => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">البريد الإلكتروني</label>
+                    <input 
+                      type="email"
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={customerForm.email}
+                      onChange={e => setCustomerForm({ ...customerForm, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button type="submit" className="flex-1 bg-brand-gold text-white py-4 rounded-2xl font-black">حفظ</button>
+                    <button type="button" onClick={() => setShowCustomerModal({ ...showCustomerModal, show: false })} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Purchase Modal */}
+        <AnimatePresence>
+          {showPurchaseModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]"
+              >
+                <h2 className="text-2xl font-black text-brand-navy mb-8">تسجيل فاتورة شراء</h2>
+                <form onSubmit={handlePurchaseSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">المورد</label>
+                    <select 
+                      required
+                      className="w-full px-5 py-3 rounded-xl border border-slate-200"
+                      value={purchaseForm.supplier_id}
+                      onChange={e => setPurchaseForm({ ...purchaseForm, supplier_id: Number(e.target.value) })}
+                    >
+                      <option value="">اختر المورد</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-bold text-slate-700">المنتجات</h3>
+                      <button 
+                        type="button"
+                        onClick={() => setPurchaseForm({ ...purchaseForm, items: [...purchaseForm.items, { book_id: 0, quantity: 1, unit_price: 0 }] })}
+                        className="text-brand-blue font-bold text-sm flex items-center gap-1"
+                      >
+                        <Plus size={16} /> إضافة منتج
+                      </button>
+                    </div>
+                    {purchaseForm.items.map((item, index) => (
+                      <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-xl relative">
+                        <div className="md:col-span-1">
+                          <label className="block text-xs font-bold text-slate-500 mb-1">المنتج</label>
+                          <select 
+                            required
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                            value={item.book_id}
+                            onChange={e => {
+                              const newItems = [...purchaseForm.items];
+                              newItems[index].book_id = Number(e.target.value);
+                              setPurchaseForm({ ...purchaseForm, items: newItems });
+                            }}
+                          >
+                            <option value="">اختر المنتج</option>
+                            {books.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1">الكمية</label>
+                          <input 
+                            type="number" required min="1"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                            value={item.quantity}
+                            onChange={e => {
+                              const newItems = [...purchaseForm.items];
+                              newItems[index].quantity = Number(e.target.value);
+                              setPurchaseForm({ ...purchaseForm, items: newItems });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1">سعر التكلفة</label>
+                          <input 
+                            type="number" required min="0" step="0.01"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                            value={item.unit_price}
+                            onChange={e => {
+                              const newItems = [...purchaseForm.items];
+                              newItems[index].unit_price = Number(e.target.value);
+                              setPurchaseForm({ ...purchaseForm, items: newItems });
+                            }}
+                          />
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const newItems = purchaseForm.items.filter((_, i) => i !== index);
+                            setPurchaseForm({ ...purchaseForm, items: newItems });
+                          }}
+                          className="absolute -left-2 -top-2 bg-white text-rose-500 p-1 rounded-full shadow-sm border border-slate-100"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button type="submit" className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black">حفظ الفاتورة</button>
+                    <button type="button" onClick={() => setShowPurchaseModal(false)} className="px-8 py-4 rounded-2xl bg-slate-100 text-slate-500 font-bold">إلغاء</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {confirmDialog.show && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-brand-navy/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl text-center"
+              >
+                <div className="w-20 h-20 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <AlertCircle size={40} />
+                </div>
+                <h3 className="text-2xl font-black text-brand-navy mb-4">{confirmDialog.title}</h3>
+                <p className="text-slate-500 mb-8 font-bold leading-relaxed">{confirmDialog.message}</p>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => {
+                      confirmDialog.onConfirm();
+                      setConfirmDialog({ ...confirmDialog, show: false });
+                    }}
+                    className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black shadow-lg shadow-rose-600/20"
+                  >
+                    تأكيد
+                  </button>
+                  <button 
+                    onClick={() => setConfirmDialog({ ...confirmDialog, show: false })}
+                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {promptDialog.show && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-brand-navy/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl"
+              >
+                <h3 className="text-2xl font-black text-brand-navy mb-6 text-center">{promptDialog.title}</h3>
+                <div className="space-y-4 mb-8">
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">{promptDialog.label}</label>
+                    <input 
+                      autoFocus
+                      type="text"
+                      className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-brand-gold focus:bg-white transition-all outline-none font-bold text-brand-navy"
+                      value={promptDialog.value}
+                      onChange={(e) => setPromptDialog({ ...promptDialog, value: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          promptDialog.onConfirm(promptDialog.value);
+                          setPromptDialog({ ...promptDialog, show: false });
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => {
+                      promptDialog.onConfirm(promptDialog.value);
+                      setPromptDialog({ ...promptDialog, show: false });
+                    }}
+                    className="flex-1 py-4 bg-brand-gold text-white rounded-2xl font-black shadow-lg shadow-brand-gold/20"
+                  >
+                    موافق
+                  </button>
+                  <button 
+                    onClick={() => setPromptDialog({ ...promptDialog, show: false })}
+                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black"
+                  >
+                    إلغاء
+                  </button>
+                </div>
               </motion.div>
             </div>
           )}

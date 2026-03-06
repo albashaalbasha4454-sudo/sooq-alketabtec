@@ -160,3 +160,21 @@
 ::-webkit-scrollbar-thumb {
   @apply bg-slate-300 rounded-full hover:bg-slate-400;
 }
+
+/* Print Styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ensure invoice and reports are always on white background */
+  .printable-content {
+    background: white !important;
+    color: black !important;
+  }
+}

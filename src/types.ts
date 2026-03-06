@@ -40,6 +40,7 @@ export interface Order {
   source?: string;
   shipment_status?: 'to_be_processed' | 'delivered' | 'returned';
   payment_status: 'paid' | 'unpaid' | 'partial';
+  paid_amount?: number;
   customer_name?: string;
   customer_phone?: string;
   display_customer_name?: string;
@@ -47,6 +48,19 @@ export interface Order {
   created_at: string;
   cashier_name?: string;
   cashier_role?: 'admin' | 'cashier';
+  items?: OrderItem[];
+}
+
+export interface OrderItem {
+  id: number;
+  order_id: number;
+  book_id: number;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  title?: string;
+  isbn?: string;
+  type?: 'book' | 'tech';
 }
 
 export interface Expense {
@@ -64,4 +78,5 @@ export interface Stats {
   lowStock: number;
   todaySales: number;
   todayNetProfit: number;
+  overduePayments: number;
 }

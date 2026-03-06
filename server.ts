@@ -18,9 +18,11 @@ async function startServer() {
       methods: ["GET", "POST"]
     },
     transports: ['polling', 'websocket'],
-    allowEIO3: true
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
   });
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
 
@@ -35,7 +37,15 @@ async function startServer() {
   };
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    console.log('Client connected:', socket.id, 'Transport:', socket.conn.transport.name);
+    
+    socket.on('disconnect', (reason) => {
+      console.log('Client disconnected:', socket.id, 'Reason:', reason);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error for client', socket.id, ':', error);
+    });
   });
 
   // --- API Routes ---
@@ -70,6 +80,7 @@ async function startServer() {
       const totalBooks = db.prepare('SELECT COUNT(*) as count FROM books').get() as any;
       const lowStock = db.prepare('SELECT COUNT(*) as count FROM books WHERE stock_quantity <= min_stock_level').get() as any;
       const todaySales = db.prepare("SELECT SUM(total_amount) as total FROM orders WHERE date(created_at) = date('now') AND status = 'completed'").get() as any;
+      const overduePayments = db.prepare("SELECT COUNT(*) as count FROM orders WHERE payment_status IN ('unpaid', 'partial')").get() as any;
       
       // Calculate today's profit
       const todayProfitData = db.prepare(`
@@ -90,7 +101,8 @@ async function startServer() {
         totalBooks: totalBooks?.count || 0,
         lowStock: lowStock?.count || 0,
         todaySales: todaySales?.total || 0,
-        todayNetProfit: todayNetProfit
+        todayNetProfit: todayNetProfit,
+        overduePayments: overduePayments?.count || 0
       });
     } catch (error) {
       console.error('Stats error:', error);
@@ -169,7 +181,8 @@ async function startServer() {
       shipment_status,
       customer_name,
       customer_phone,
-      payment_status
+      payment_status,
+      paid_amount
     } = req.body;
     
     const transaction = db.transaction(() => {
@@ -189,9 +202,10 @@ async function startServer() {
           shipment_status,
           customer_name,
           customer_phone,
-          payment_status
+          payment_status,
+          paid_amount
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         customer_id, 
         user_id, 
@@ -207,17 +221,19 @@ async function startServer() {
         shipment_status,
         customer_name,
         customer_phone,
-        payment_status || 'paid'
+        payment_status || 'paid',
+        paid_amount || 0
       );
       
       const orderId = orderInfo.lastInsertRowid;
       
       // Record transaction in treasury (Main Treasury by default for now)
       const mainAccount = db.prepare('SELECT id FROM accounts WHERE name = ?').get('الخزينة الرئيسية') as any;
-      if (mainAccount && ['cash', 'alharam', 'sham_cash', 'syriatel_cash'].includes(payment_method)) {
+      if (mainAccount && ['cash', 'alharam', 'sham_cash', 'syriatel_cash'].includes(payment_method) && payment_status !== 'unpaid') {
+        const amountToRecord = paid_amount || total_amount;
         db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
-          .run(mainAccount.id, 'sale', total_amount, `بيع فاتورة #${orderId} (${payment_method})`, orderId);
-        db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(total_amount, mainAccount.id);
+          .run(mainAccount.id, 'sale', amountToRecord, `بيع فاتورة #${orderId} (${payment_method})`, orderId);
+        db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(amountToRecord, mainAccount.id);
       }
       
       for (const item of items) {
@@ -265,6 +281,40 @@ async function startServer() {
       ORDER BY o.created_at DESC
     `).all();
     res.json(orders);
+  });
+
+  app.get('/api/orders/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+      const order = db.prepare(`
+        SELECT 
+          o.*, 
+          u.username as cashier_name, 
+          u.role as cashier_role,
+          COALESCE(c.name, o.customer_name) as display_customer_name,
+          COALESCE(c.phone, o.customer_phone) as display_customer_phone
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN customers c ON o.customer_id = c.id
+        WHERE o.id = ?
+      `).get(id) as any;
+
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'Order not found' });
+      }
+
+      const items = db.prepare(`
+        SELECT oi.*, b.title, b.isbn, b.type
+        FROM order_items oi
+        JOIN books b ON oi.book_id = b.id
+        WHERE oi.order_id = ?
+      `).all(id);
+
+      order.items = items;
+      res.json(order);
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    }
   });
 
   app.patch('/api/orders/:id/status', (req, res) => {
@@ -394,8 +444,73 @@ async function startServer() {
 
   app.post('/api/returns', (req, res) => {
     const { order_id, amount, reason } = req.body;
-    db.prepare('INSERT INTO returns (order_id, amount, reason) VALUES (?, ?, ?)').run(order_id, amount, reason);
-    res.json({ success: true });
+    const transaction = db.transaction(() => {
+      db.prepare('INSERT INTO returns (order_id, amount, reason) VALUES (?, ?, ?)').run(order_id, amount, reason);
+      
+      // Record in treasury
+      const mainAccount = db.prepare('SELECT id FROM accounts WHERE name = ?').get('الخزينة الرئيسية') as any;
+      if (mainAccount) {
+        db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
+          .run(mainAccount.id, 'expense', amount, `مرتجع فاتورة #${order_id}: ${reason}`, order_id);
+        db.prepare('UPDATE accounts SET balance = balance - ? WHERE id = ?').run(amount, mainAccount.id);
+      }
+
+      // Restore stock (optional: could be damaged, but let's assume restock for now)
+      const items = db.prepare('SELECT book_id, quantity FROM order_items WHERE order_id = ?').all(order_id) as any[];
+      for (const item of items) {
+        db.prepare('UPDATE books SET stock_quantity = stock_quantity + ? WHERE id = ?').run(item.quantity, item.book_id);
+      }
+      
+      // Update order status to 'returned'
+      db.prepare('UPDATE orders SET status = "returned" WHERE id = ?').run(order_id);
+    });
+
+    try {
+      transaction();
+      notifyClients('orders');
+      notifyClients('books');
+      notifyClients('accounts');
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/orders/:id', (req, res) => {
+    const { id } = req.params;
+    const transaction = db.transaction(() => {
+      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as any;
+      if (!order) throw new Error('Order not found');
+
+      // Restore stock
+      const items = db.prepare('SELECT book_id, quantity FROM order_items WHERE order_id = ?').all(id) as any[];
+      for (const item of items) {
+        db.prepare('UPDATE books SET stock_quantity = stock_quantity + ? WHERE id = ?').run(item.quantity, item.book_id);
+      }
+
+      // Reverse treasury if it was completed
+      if (order.status === 'completed') {
+        const mainAccount = db.prepare('SELECT id FROM accounts WHERE name = ?').get('الخزينة الرئيسية') as any;
+        if (mainAccount) {
+          db.prepare('INSERT INTO transactions (account_id, type, amount, description, reference_id) VALUES (?, ?, ?, ?, ?)')
+            .run(mainAccount.id, 'expense', order.total_amount, `إلغاء فاتورة #${id}`, id);
+          db.prepare('UPDATE accounts SET balance = balance - ? WHERE id = ?').run(order.total_amount, mainAccount.id);
+        }
+      }
+
+      db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+
+    try {
+      transaction();
+      notifyClients('orders');
+      notifyClients('books');
+      notifyClients('accounts');
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
   });
 
   // Capital Movements
@@ -569,8 +684,20 @@ async function startServer() {
 
   // Global Error Handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error(err.stack);
-    res.status(500).json({ success: false, message: 'Internal Server Error' });
+    console.error('Global Error:', err.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined 
+    });
+  });
+
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   });
 
   // Vite middleware for development

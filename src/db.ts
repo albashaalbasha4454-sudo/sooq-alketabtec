@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 
-const db = new Database('sooq_al_ketab.db');
+const dbPath = process.env.DATABASE_PATH || 'sooq_al_ketab.db';
+const db = new Database(dbPath);
 
 // Initialize tables
 db.exec(`
@@ -184,6 +185,15 @@ const seedAccounts = () => {
 
 seedAccounts();
 
+const seedCategories = () => {
+  const general = db.prepare('SELECT * FROM categories WHERE name = ?').get('عام');
+  if (!general) {
+    db.prepare('INSERT INTO categories (name) VALUES (?)').run('عام');
+  }
+};
+
+seedCategories();
+
 // Migration for new columns in orders table
 try {
   const columns = db.prepare("PRAGMA table_info(orders)").all() as any[];
@@ -212,6 +222,9 @@ try {
   }
   if (!columnNames.includes('payment_status')) {
     db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'paid'");
+  }
+  if (!columnNames.includes('paid_amount')) {
+    db.exec("ALTER TABLE orders ADD COLUMN paid_amount REAL DEFAULT 0");
   }
   
   const bookColumns = db.prepare("PRAGMA table_info(books)").all() as any[];

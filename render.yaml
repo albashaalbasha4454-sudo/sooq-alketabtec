@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: bookstore-pos
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npx tsx server.ts
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: ./sooq_al_ketab.db
+      - key: GEMINI_API_KEY
+        sync: false
+
